@@ -29,6 +29,8 @@ struct ActivityResult {
     let answer: Answer
     /// The plan asked for this one to be done together from the start.
     let startedModelled: Bool
+    /// At least one independent answer was not right before the activity finished.
+    let hadMiss: Bool
 }
 
 /// Focus targets inside an activity screen.
@@ -194,7 +196,7 @@ final class ActivityCoordinator: ObservableObject {
 
     private func finish(answer: Answer, firstTry: Bool, text: String, positive: Bool, sfx: String) {
         result = ActivityResult(activity: activity, firstTryCorrect: firstTry, support: answer.support,
-                                answer: answer, startedModelled: startsModelled)
+                                answer: answer, startedModelled: startsModelled, hadMiss: missCount > 0)
         feedback = FeedbackLine(text: text, positive: positive)
         phase = .complete
         env.playAudio(sfx)

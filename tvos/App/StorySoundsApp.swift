@@ -3,16 +3,11 @@ import StorySoundsCore
 
 @main
 struct StorySoundsApp: App {
-    var body: some Scene {
-        WindowGroup { RootView() }
-    }
-}
+    @StateObject private var host = EnvironmentHost()
 
-struct RootView: View {
-    var body: some View {
-        VStack(spacing: 40) {
-            Text("Story Sounds").font(.largeTitle)
-            Button("Start") {}.accessibilityIdentifier("start")
+    var body: some Scene {
+        WindowGroup {
+            RootView(host: host)
         }
     }
 }

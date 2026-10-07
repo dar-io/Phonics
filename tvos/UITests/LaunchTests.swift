@@ -1,11 +1,12 @@
 import XCTest
 
 final class LaunchTests: XCTestCase {
-    func testLaunchShowsFocusedStartButton() {
+    func testFirstLaunchShowsOnboardingWithFocusedChoice() {
         let app = XCUIApplication()
+        app.launchArguments = ["-uitest-reset", "-uitest-inmemory", "-uitest-no-audio"]
         app.launch()
-        let start = app.buttons["start"]
-        XCTAssertTrue(start.waitForExistence(timeout: 10))
-        XCTAssertTrue(start.hasFocus)
+        let first = app.buttons["onboarding.name.0"]
+        XCTAssertTrue(first.waitForExistence(timeout: 15))
+        XCTAssertTrue(first.hasFocus)
     }
 }

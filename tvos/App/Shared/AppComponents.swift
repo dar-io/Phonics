@@ -66,6 +66,7 @@ struct WrenView: View {
     var body: some View {
         let u = size / 200
         ZStack {
+          Group {
             // Lantern glow
             Circle()
                 .fill(RadialGradient(colors: [Theme.accent.opacity(0.55), Theme.accent.opacity(0)],
@@ -81,6 +82,8 @@ struct WrenView: View {
             Capsule().fill(Theme.onAccent.opacity(0.7))
                 .frame(width: 4 * u, height: 26 * u)
                 .offset(x: 62 * u, y: 4 * u)
+          }
+          Group {
             // Body
             Ellipse()
                 .fill(Color(red: 0.72, green: 0.52, blue: 0.36))
@@ -97,6 +100,8 @@ struct WrenView: View {
                 .frame(width: 56 * u, height: 70 * u)
                 .rotationEffect(.degrees(mood == .cheer ? -25 : -10))
                 .offset(x: 28 * u, y: 36 * u)
+          }
+          Group {
             // Head
             Circle()
                 .fill(Color(red: 0.72, green: 0.52, blue: 0.36))
@@ -119,9 +124,12 @@ struct WrenView: View {
                     .frame(width: 22 * u, height: 5 * u)
                     .offset(x: -6 * u, y: -64 * u)
             }
+          }
+          Group {
             // Feet
             Capsule().fill(Theme.accent).frame(width: 6 * u, height: 22 * u).offset(x: -34 * u, y: 94 * u)
             Capsule().fill(Theme.accent).frame(width: 6 * u, height: 22 * u).offset(x: 6 * u, y: 94 * u)
+          }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
