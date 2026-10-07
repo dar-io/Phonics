@@ -39,3 +39,12 @@ jobs:
           echo "=== COMPILE/TEST ERRORS ==="
           grep -E "error:|failed \(|XCTAssert.*failed|Fatal error" xcodebuild.log | sed -E 's#.*/tvos/##' | sort -u | head -60
           echo "=== END ==="
+      - name: Test counts
+        if: always()
+        run: |
+          echo "=== TEST COUNTS ==="
+          echo "passed: $(grep -cE "Test Case .* passed" xcodebuild.log)"
+          echo "failed: $(grep -cE "Test Case .* failed" xcodebuild.log)"
+          grep -E "Executed [0-9]+ tests?," xcodebuild.log | tail -1
+          grep -E "Test Case .* failed" xcodebuild.log | sed -E 's#.*Test Case ##' | head -30
+          echo "=== END COUNTS ==="
