@@ -204,15 +204,16 @@ public struct CurriculumIndex: Sendable {
 
         // Focus words per unit (words that practise the unit's own sound/spelling).
         var focus: [String: [Word]] = [:]
+        let lowerTexts: [String] = curriculum.words.map { $0.text.lowercased() }
         for u in sortedUnits {
             var candidates: [Word] = []
             for t in u.exampleWords {
                 if let w = byKey[t.lowercased()] { candidates.append(w) }
             }
             let newGraphemes: [String] = consolidation.contains(u.id) ? [] : u.graphemes.filter { first[$0] == u.order }
-            for w in curriculum.words {
+            for (wi, w) in curriculum.words.enumerated() {
                 var include: Bool = false
-                if let reqs = curriculum.wordRequirements[w.text.lowercased()], reqs.contains(u.id) {
+                if let reqs = curriculum.wordRequirements[lowerTexts[wi]], reqs.contains(u.id) {
                     include = true
                 }
                 if !include && !newGraphemes.isEmpty {
