@@ -292,6 +292,10 @@ public enum ActivityGenerator {
             tiles = rng.shuffled(target)
             tries += 1
         }
+        if tiles == target && Set(target).count > 1 {
+            // Rotating by one always differs unless every tile is identical.
+            tiles = Array(tiles.dropFirst()) + [tiles[0]]
+        }
         return tiles
     }
 
