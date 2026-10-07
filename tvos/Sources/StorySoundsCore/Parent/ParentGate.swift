@@ -12,7 +12,7 @@ public struct HoldGate: Equatable, Sendable {
     public var isHolding: Bool { startedAt != nil && !isSatisfied }
 
     public mutating func begin(at now: Date) {
-        guard !isSatisfied else { return }
+        guard !isSatisfied, startedAt == nil else { return }
         startedAt = now
     }
     public mutating func cancel() { startedAt = nil; isSatisfied = false }
