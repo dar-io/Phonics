@@ -33,3 +33,9 @@ jobs:
           path: |
             *.xcresult
             xcodebuild.log
+      - name: Error summary
+        if: failure()
+        run: |
+          echo "=== COMPILE/TEST ERRORS ==="
+          grep -E "error:|failed \(|XCTAssert.*failed|Fatal error" xcodebuild.log | sed -E 's#.*/tvos/##' | sort -u | head -60
+          echo "=== END ==="
