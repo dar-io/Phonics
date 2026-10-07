@@ -20,6 +20,8 @@ struct ParentGateView: View {
     private enum GateFocus: Hashable { case hold, back, answer(Int) }
     private static let lockoutKey = "storysounds.parentgate.lockout"
     private static let holdSeconds: TimeInterval = 3
+    /// UI tests only (`-uitest-parent-gate-pass`): skips the hold step; the adult question is still required.
+    private static let skipHoldForTests = CommandLine.arguments.contains("-uitest-parent-gate-pass")
 
     @State private var session: ParentGateSession
     @State private var now = Date()
@@ -57,6 +59,7 @@ struct ParentGateView: View {
         .onAppear {
             session.refresh(at: Date())
             focus = defaultTarget
+            if ParentGateView.skipHoldForTests { skipHoldForAssistiveTech() }
         }
         .onChange(of: stageKey) { _, _ in
             focus = defaultTarget
@@ -171,8 +174,9 @@ struct ParentGateView: View {
             Text(c.prompt).font(Theme.headingFont).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
+                .a11yID("parentgate.prompt")
             if let notice = notice {
-                Text(notice).font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
+                Text(notice).font(Theme.captionFont).foregroundStyle(Theme.textSecondary).a11yID("parentgate.notice")
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 32), GridItem(.flexible(), spacing: 32)], spacing: 32) {
                 ForEach(0..<c.options.count, id: \.self) { i in

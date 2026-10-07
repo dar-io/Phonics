@@ -28,12 +28,20 @@ struct LaunchOptions: Equatable {
     var reduceMotion = false
     var noAudio = false
     var dayOffset = 0
+    /// UI tests only: skip the press-and-hold step of the parent gate (the adult question is still required).
+    var skipGateHold = false
+    /// UI tests only: override the session length in minutes.
+    var sessionMinutes: Int?
 
     init(arguments: [String] = []) {
         reset = arguments.contains("-uitest-reset")
         inMemory = arguments.contains("-uitest-inmemory")
         reduceMotion = arguments.contains("-uitest-reduce-motion")
         noAudio = arguments.contains("-uitest-no-audio")
+        skipGateHold = arguments.contains("-uitest-parent-gate-pass")
+        if let i = arguments.firstIndex(of: "-uitest-session-minutes"), i + 1 < arguments.count, let n = Int(arguments[i + 1]), n > 0 {
+            sessionMinutes = n
+        }
         if arguments.contains("-uitest-fast-review") { dayOffset = 2 }
         if let i = arguments.firstIndex(of: "-uitest-day-offset"), i + 1 < arguments.count, let n = Int(arguments[i + 1]) {
             dayOffset = n
@@ -145,6 +153,7 @@ final class AppEnvironment: ObservableObject {
         }
 
         if options.reset {
+            UserDefaults.standard.removeObject(forKey: "storysounds.parentgate.lockout")
             try? DataDeletionService(store: store, localKeyValue: kv, privacy: privacy, backup: nil).deleteEverything()
         }
 

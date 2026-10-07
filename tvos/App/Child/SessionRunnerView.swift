@@ -92,7 +92,7 @@ final class SessionModel: ObservableObject {
         didStart = true
         let when = env.now
         seed = UInt64(truncatingIfNeeded: Int64(Date().timeIntervalSince1970))
-        let minutes = min(10, max(3, env.settings.mastery.sessionMinutes))
+        let minutes = env.options.sessionMinutes ?? min(10, max(3, env.settings.mastery.sessionMinutes))
         let plan = SessionPlanner.plan(index: env.index, snapshot: env.snapshot, now: when, seed: seed,
                                        minutes: minutes, focusUnitId: nil)
         sessionId = plan.id
