@@ -1,0 +1,30 @@
+name: tvOS build and test
+on:
+  push:
+    branches: ['claude/story-sounds-phonics-app']
+    paths: ['tvos/**', '.github/workflows/tvos.yml']
+  workflow_dispatch:
+jobs:
+  tvos:
+    runs-on: macos-latest
+    defaults: { run: { working-directory: tvos } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain info
+        run: xcodebuild -version && swift --version && xcodebuild -showsdks | grep -i tvos
+      - name: Pick an Apple TV simulator
+        run: |
+          xcrun simctl list devices available | grep "Apple TV" | head -5
+          UDID=$(xcrun simctl list devices available | grep "Apple TV 4K" | head -1 | grep -oE '[0-9A-F-]{36}')
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Core unit tests (tvOS simulator)
+        run: set -o pipefail && xcodebuild test -scheme StorySoundsCore -destination "id=$SIM_UDID" -resultBundlePath ../core.xcresult | tail -60
+      - name: App build + UI tests (tvOS simulator)
+        run: set -o pipefail && xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -resultBundlePath ../ui.xcresult | tail -60
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: xcresults, path: '*.xcresult' }

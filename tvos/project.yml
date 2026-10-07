@@ -1,0 +1,38 @@
+name: StorySounds
+options:
+  bundleIdPrefix: dev.storysounds
+  deploymentTarget:
+    tvOS: "17.0"
+packages:
+  StorySoundsCore:
+    path: .
+targets:
+  StorySounds:
+    type: application
+    platform: tvOS
+    sources: [App]
+    dependencies:
+      - package: StorySoundsCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.app
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        SWIFT_VERSION: "5.9"
+  StorySoundsUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources: [UITests]
+    dependencies:
+      - target: StorySounds
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.uitests
+        SWIFT_VERSION: "5.9"
+schemes:
+  StorySounds:
+    build:
+      targets: { StorySounds: all }
+    test:
+      targets: [StorySoundsUITests]
