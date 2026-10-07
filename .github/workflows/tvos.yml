@@ -4,9 +4,13 @@ on:
     branches: ['claude/story-sounds-phonics-app']
     paths: ['tvos/**', '.github/workflows/tvos.yml']
   workflow_dispatch:
+concurrency:
+  group: tvos-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   tvos:
     runs-on: macos-latest
+    timeout-minutes: 45
     defaults: { run: { working-directory: tvos } }
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +28,7 @@ jobs:
       - name: Build and test on tvOS simulator (unit + UI)
         run: |
           set -o pipefail
-          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -resultBundlePath ../tests.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
+          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 420 -resultBundlePath ../tests.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
           grep -q "TEST SUCCEEDED" ../xcodebuild.log
       - uses: actions/upload-artifact@v4
         if: always()
