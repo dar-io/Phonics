@@ -21,10 +21,13 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate
-      - name: Core unit tests (tvOS simulator)
-        run: set -o pipefail && xcodebuild test -scheme StorySoundsCore-Package -destination "id=$SIM_UDID" -resultBundlePath ../core.xcresult | tail -60
-      - name: App build + UI tests (tvOS simulator)
-        run: set -o pipefail && xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -resultBundlePath ../ui.xcresult | tail -60
+      - name: Build and test on tvOS simulator (unit + UI)
+        run: |
+          set -o pipefail
+          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -resultBundlePath ../tests.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
+          grep -q "TEST SUCCEEDED" ../xcodebuild.log
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: xcresults, path: '*.xcresult' }
+        with: { name: xcresults, path: |
+            *.xcresult
+            xcodebuild.log }

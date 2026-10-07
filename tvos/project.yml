@@ -19,6 +19,17 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SWIFT_VERSION: "5.9"
+  StorySoundsCoreTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources: [Tests/StorySoundsCoreTests]
+    dependencies:
+      - package: StorySoundsCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.coretests
+        SWIFT_VERSION: "5.9"
   StorySoundsUITests:
     type: bundle.ui-testing
     platform: tvOS
@@ -35,4 +46,4 @@ schemes:
     build:
       targets: { StorySounds: all }
     test:
-      targets: [StorySoundsUITests]
+      targets: [StorySoundsCoreTests, StorySoundsUITests]
