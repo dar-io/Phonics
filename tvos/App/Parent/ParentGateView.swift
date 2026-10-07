@@ -124,7 +124,7 @@ struct ParentGateView: View {
             .scaleEffect(isFocused && !reduceMotion ? 1.06 : 1.0)
             .focusable()
             .focused($focus, equals: .hold)
-            .onLongPressGesture(minimumDuration: ParentGateView.holdSeconds, maximumDistance: 60, perform: {
+            .onLongPressGesture(minimumDuration: ParentGateView.holdSeconds, perform: {
                 completeHold()
             }, onPressingChanged: { pressing in
                 if pressing {
