@@ -22,7 +22,7 @@ jobs:
       - name: Generate project
         run: xcodegen generate
       - name: Core unit tests (tvOS simulator)
-        run: set -o pipefail && xcodebuild test -scheme StorySoundsCore -destination "id=$SIM_UDID" -resultBundlePath ../core.xcresult | tail -60
+        run: set -o pipefail && xcodebuild test -scheme StorySoundsCore-Package -destination "id=$SIM_UDID" -resultBundlePath ../core.xcresult | tail -60
       - name: App build + UI tests (tvOS simulator)
         run: set -o pipefail && xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -resultBundlePath ../ui.xcresult | tail -60
       - uses: actions/upload-artifact@v4
