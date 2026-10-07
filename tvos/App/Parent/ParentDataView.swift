@@ -11,13 +11,18 @@ struct ParentDataView: View {
     @State private var page = 0
     @State private var pending: ParentDataAction?
     @State private var outcome: String?
+    /// After a successful 'delete everything' the app returns to first-launch onboarding once the grown-up taps OK.
+    @State private var returnToOnboarding = false
     @State private var refresh = 0   // bumps after backup actions so the status text re-reads the controller
 
     private static let titles = ["Where your data lives", "Progress summary", "iCloud backup", "Reset or delete"]
 
     var body: some View {
         if let text = outcome {
-            ParentOutcomeView(text: text) { outcome = nil }
+            ParentOutcomeView(text: text) {
+                outcome = nil
+                if returnToOnboarding { returnToOnboarding = false; env.route = .onboarding }
+            }
         } else if let action = pending {
             ParentConfirmView(action: action, nickname: env.snapshot.profile.nickname,
                               onConfirm: { run(action) }, onCancel: { pending = nil })
@@ -148,6 +153,7 @@ struct ParentDataView: View {
             do {
                 try env.deleteEverything()
                 ParentGateView.clearStoredLockout()
+                returnToOnboarding = true
                 outcome = "Everything has been deleted from this Apple TV and from iCloud."
             } catch {
                 outcome = "Something went wrong, so not everything may have been deleted. Please try again."

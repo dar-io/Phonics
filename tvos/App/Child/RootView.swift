@@ -59,6 +59,7 @@ struct RouterView: View {
             case .parent:
                 // ParentAreaView is owned by the parent UI. It leaves by setting `env.route = .home`.
                 ParentAreaView()
+                    .environment(\.parentBackup, env.parentBackup)
                     .onExitCommand { env.route = .home }
                     .transition(.opacity)
             }

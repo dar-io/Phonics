@@ -279,6 +279,26 @@ final class AppEnvironment: ObservableObject {
         saveProblem = false
     }
 
+    /// Applies a restored iCloud backup to the local store (same-id profiles are overwritten), then reloads in-memory state.
+    /// Returns how many profiles were written. Throws so the parent is told the truth if restore fails.
+    func restoreFromBackup(_ payload: BackupPayload) throws -> Int {
+        coordinator.cancelPending()
+        let written = try BackupRestoration.apply(payload, to: store, curriculum: curriculum, overwrite: true)
+        let ids = try store.listProfileIds()
+        let target = ids.contains(snapshot.profile.id) ? snapshot.profile.id : ids.first
+        if let id = target, let loaded = try store.load(profileId: id) {
+            snapshot = Migrator.reconcile(loaded, with: curriculum).snapshot
+            audio.settings = snapshot.profile.settings
+        }
+        return written.count
+    }
+
+    /// Backup controller handed to the parent area through the SwiftUI environment (`\.parentBackup`).
+    private(set) lazy var parentBackup: ParentBackupAdapter = ParentBackupAdapter(
+        service: backup, privacy: privacy,
+        snapshots: { [weak self] in self.map { [$0.snapshot] } ?? [] },
+        restore: { [weak self] payload in try self?.restoreFromBackup(payload) ?? 0 })
+
     /// Call when the scene becomes inactive or backgrounded.
     func flush() {
         if loadFailure == nil { coordinator.flushNow() }
