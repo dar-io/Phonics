@@ -154,7 +154,9 @@ class StorySoundsUITestCase: XCTestCase {
             return false
         }
         if e.hasFocus { return true }
-        let directions: [XCUIRemote.Button] = [.down, .right, .up, .left]
+        // Sweep order matters: after moving down into a row of buttons, try left and right BEFORE going back up,
+        // otherwise a target in that row (other than the one the focus engine lands on) is never reached.
+        let directions: [XCUIRemote.Button] = [.down, .left, .right, .up, .left, .right]
         for _ in 0..<2 {
             for d in directions {
                 for _ in 0..<maxMoves {
@@ -248,7 +250,8 @@ class StorySoundsUITestCase: XCTestCase {
 
     func openParentGate() {
         activate("home.grownups", settle: 0.8)
-        XCTAssertTrue(el("parentgate.hold").waitForExistence(timeout: 10), "Parent gate did not appear")
+        // `parentgate.back` exists at every gate stage (hold, question, locked-out), including when the hold is skipped.
+        XCTAssertTrue(el("parentgate.back").waitForExistence(timeout: 10), "Parent gate did not appear")
     }
 
     func gatePromptElement() -> XCUIElement {
