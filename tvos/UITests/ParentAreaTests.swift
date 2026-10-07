@@ -5,7 +5,7 @@ final class ParentAreaTests: StorySoundsUITestCase {
 
     // (6a) Wrong answer shows a calm message and stays on a question; Menu leaves the gate.
     func testGateWrongAnswerShowsCalmMessageThenCorrectUnlocks() {
-        launchApp()
+        launchApp(realHold: true)
         completeOnboarding()
         openParentGate()
         // A short press must not unlock.

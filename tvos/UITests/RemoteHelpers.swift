@@ -60,11 +60,14 @@ class StorySoundsUITestCase: XCTestCase {
 
     // MARK: Launch
 
-    func launchApp(reset: Bool = true, inMemory: Bool = true, extra: [String] = []) {
+    /// `realHold: true` exercises the real press-and-hold gesture; otherwise the hold step is skipped with
+    /// `-uitest-parent-gate-pass` (the adult question is still required).
+    func launchApp(reset: Bool = true, inMemory: Bool = true, realHold: Bool = false, extra: [String] = []) {
         var args: [String] = []
         if reset { args.append("-uitest-reset") }
         if inMemory { args.append("-uitest-inmemory") }
         args.append("-uitest-no-audio")
+        if !realHold { args.append("-uitest-parent-gate-pass") }
         args.append(contentsOf: extra)
         app.launchArguments = args
         app.launch()
@@ -76,7 +79,7 @@ class StorySoundsUITestCase: XCTestCase {
         XCUIRemote.shared.press(.home)
         Thread.sleep(forTimeInterval: 2.5)
         app.terminate()
-        app.launchArguments = ["-uitest-no-audio"] + extra
+        app.launchArguments = ["-uitest-no-audio", "-uitest-parent-gate-pass"] + extra
         app.launch()
     }
 
@@ -255,6 +258,8 @@ class StorySoundsUITestCase: XCTestCase {
 
     /// Holds Select long enough (the app requires 3 s; 4.5 s adds margin) and waits for the adult question.
     func passHoldStep() {
+        // With -uitest-parent-gate-pass the hold step is already skipped and the question is showing.
+        if gatePromptElement().waitForExistence(timeout: 2) { return }
         let hold = el("parentgate.hold")
         XCTAssertTrue(hold.waitForExistence(timeout: 10), "Hold control missing")
         waitForFocus(hold)
