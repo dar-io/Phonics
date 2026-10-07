@@ -28,6 +28,8 @@ jobs:
           grep -q "TEST SUCCEEDED" ../xcodebuild.log
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: xcresults, path: |
+        with:
+          name: xcresults
+          path: |
             *.xcresult
-            xcodebuild.log }
+            xcodebuild.log
