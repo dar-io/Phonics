@@ -29,8 +29,10 @@ public final class AudioLibrary {
     private let bundleResolver: (String) -> URL?
     private let recordings: RecordingStore?
 
-    public init(manifest: AudioManifest, bundleResolver: @escaping (String) -> URL? = AudioLibrary.bundleResolver(bundle: .module),
+    /// Pass `nil` for `bundleResolver` to look files up in this package's bundle.
+    public init(manifest: AudioManifest, bundleResolver: ((String) -> URL?)? = nil,
                 recordings: RecordingStore? = nil) {
+        let bundleResolver = bundleResolver ?? AudioLibrary.bundleResolver(bundle: .module)
         self.manifest = manifest
         var dict: [String: AudioEntry] = [:]
         for e in manifest.entries { dict[e.id] = e }
