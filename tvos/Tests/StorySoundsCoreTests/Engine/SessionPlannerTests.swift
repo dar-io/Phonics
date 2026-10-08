@@ -207,8 +207,8 @@ final class SessionPlannerTests: XCTestCase {
 
     func testBaselinePlanIsShortOrderedAndValid() {
         let plan: BaselinePlan = Baseline.plan(index: real.index, seed: 3)
-        XCTAssertGreaterThanOrEqual(plan.activities.count, 8)
-        XCTAssertLessThanOrEqual(plan.activities.count, 10)
+        XCTAssertGreaterThanOrEqual(plan.activities.count, 12)
+        XCTAssertLessThanOrEqual(plan.activities.count, 18)
         XCTAssertEqual(plan.stopAfterConsecutiveMisses, 2)
         var last: Int = 0
         for a in plan.activities {
@@ -217,7 +217,8 @@ final class SessionPlannerTests: XCTestCase {
             last = order
             validateActivity(a, spec: ActivitySpec(unitId: a.unitId, type: a.type, knownOrder: order), index: real.index)
         }
-        XCTAssertEqual(plan.activities.first?.unitId, "g-s")
+        // Units 1 and 2 offer fewer than three choices (a guess passes), so the baseline starts after them.
+        XCTAssertGreaterThanOrEqual(real.index.unitOrder(id: plan.activities.first?.unitId ?? "") ?? 0, 3)
         let again: BaselinePlan = Baseline.plan(index: real.index, seed: 3)
         XCTAssertEqual(plan.activities, again.activities)
     }

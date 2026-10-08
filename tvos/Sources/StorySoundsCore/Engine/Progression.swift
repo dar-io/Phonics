@@ -10,8 +10,10 @@ public struct BaselineItemResult: Hashable, Sendable {
         self.correct = correct
         self.support = support
     }
+    /// A guessable item (one or two choices) is never evidence: it is recorded as `.modelled` and ignored by placement.
     public init(activity: Activity, answer: Answer) {
-        self.init(unitId: activity.unitId, correct: answer.correct, support: answer.support)
+        self.init(unitId: activity.unitId, correct: answer.correct,
+                  support: ActivityGenerator.evidenceSupport(for: activity, answered: answer.support))
     }
 }
 
@@ -68,12 +70,48 @@ public enum Progression {
         for t in gate {
             guard let s = skills[skillKey(unit.id, t)] else { return false }
             if Mastery.isEstablished(s, settings: settings) { continue }
-            // Unit 1 has a single grapheme, so its recognise items offer one choice and can never be independent evidence.
-            // Once the learner has met the unit (any attempt, however it was supported) it must not block the sequence.
-            if t == .recognise && index.hasOnlyOneChoiceRecognition(unitId: unit.id) && s.status != .new { continue }
+            // Units 1 and 2 teach only one or two graphemes, so their recognise items offer one or two choices and can never
+            // be independent evidence (a guess passes). Once the learner has met the unit (any attempt, however it was
+            // supported) it must not block the sequence.
+            if t == .recognise && index.hasFewChoiceRecognition(unitId: unit.id) && s.status != .new { continue }
             return false
         }
         return true
+    }
+
+    /// Soft-pass evidence on one skill: enough independent attempts, spread over enough sessions, with a fair score.
+    /// This is steady effort, not mastery.
+    public static func meetsSoftPass(_ skill: SkillState, settings: MasterySettings) -> Bool {
+        if skill.softPassedAt != nil { return true }
+        return skill.attempts >= settings.softPassAttempts
+            && skill.sessionsSeen.count >= settings.softPassSessions
+            && skill.score >= settings.softPassScore
+    }
+
+    private static func gatesPassed(unit: GraphemeUnit, index: CurriculumIndex, skills: [String: SkillState],
+                                    settings: MasterySettings, allowIntroduction: Bool) -> Bool {
+        let gate: [Track] = gateTracks(unit: unit, index: index)
+        if gate.isEmpty { return true }
+        for t in gate {
+            guard let s = skills[skillKey(unit.id, t)] else { return false }
+            if Mastery.isEstablished(s, settings: settings) { continue }
+            if allowIntroduction && t == .recognise && index.hasFewChoiceRecognition(unitId: unit.id) && s.status != .new { continue }
+            if meetsSoftPass(s, settings: settings) { continue }
+            return false
+        }
+        return true
+    }
+
+    /// Passed for introducing the next unit: secure, OR soft-passed (every gate track either established or soft-passed).
+    /// A child who keeps trying is never trapped on one unit.
+    public static func isUnitPassed(unit: GraphemeUnit, index: CurriculumIndex, skills: [String: SkillState], settings: MasterySettings) -> Bool {
+        return gatesPassed(unit: unit, index: index, skills: skills, settings: settings, allowIntroduction: true)
+    }
+
+    /// Passed only through the soft-pass rule: not secure, so NOT mastered; it stays in review at the shortest interval.
+    public static func isUnitSoftPassed(unit: GraphemeUnit, index: CurriculumIndex, skills: [String: SkillState], settings: MasterySettings) -> Bool {
+        if isUnitSecure(unit: unit, index: index, skills: skills, settings: settings) { return false }
+        return gatesPassed(unit: unit, index: index, skills: skills, settings: settings, allowIntroduction: false)
     }
 
     /// Mastered = every applicable track is secure right now.
@@ -122,8 +160,10 @@ public enum Progression {
         let placement: Int? = snapshot.profile.baselinePlacementOrder
 
         var passed: [String: Bool] = [:]
+        var softPassed: [String: Bool] = [:]
         for u in index.units {
-            passed[u.id] = isUnitSecure(unit: u, index: index, skills: skills, settings: settings)
+            passed[u.id] = isUnitPassed(unit: u, index: index, skills: skills, settings: settings)
+            softPassed[u.id] = isUnitSoftPassed(unit: u, index: index, skills: skills, settings: settings)
         }
         func prerequisiteMet(_ id: String) -> Bool {
             if let p = placement, let o = index.unitOrder(id: id), o < p { return true }
@@ -160,6 +200,9 @@ public enum Progression {
             } else if allSecure {
                 status = .mastered
                 reason = "Secure: \(name) has been shown independently across \(tracks.count) skill\(tracks.count == 1 ? "" : "s")."
+            } else if softPassed[u.id] == true {
+                status = .inProgress
+                reason = "Moving on gently \u{2014} this sound will keep coming back for practice."
             } else if hasEvidence || placedPast {
                 status = .inProgress
                 if hasEvidence && !placedPast {
@@ -200,14 +243,14 @@ public enum Progression {
         return nextUnit(index: CurriculumIndex(curriculum), snapshot: snapshot, now: now)
     }
 
-    /// ONE new unit at a time: the earliest not-yet-secure unit (from the baseline placement onward) whose prerequisites are secure.
+    /// ONE new unit at a time: the earliest not-yet-passed (secure or soft-passed) unit (from the baseline placement onward) whose prerequisites are secure.
     public static func nextUnit(index: CurriculumIndex, snapshot: LearnerSnapshot, now: Date) -> GraphemeUnit? {
         let settings: MasterySettings = snapshot.profile.settings.mastery
         let skills: [String: SkillState] = skillMap(snapshot)
         let placement: Int? = snapshot.profile.baselinePlacementOrder
         var passed: [String: Bool] = [:]
         for u in index.units {
-            passed[u.id] = isUnitSecure(unit: u, index: index, skills: skills, settings: settings)
+            passed[u.id] = isUnitPassed(unit: u, index: index, skills: skills, settings: settings)
         }
         for u in index.units {
             if let p = placement, u.order < p { continue }
@@ -272,13 +315,20 @@ public enum Progression {
         return placeFromBaseline(index: CurriculumIndex(curriculum), results: results, now: now)
     }
 
-    /// Places the learner at the EARLIEST unit not shown to be known, never at the highest unit answered correctly:
-    /// the earliest sampled miss, stepped back to any of its direct prerequisites that were not demonstrated.
+    /// How many units before the first sampled miss the learner is placed. A lucky guess above a gap, or a miss that hides a
+    /// shaky unit just before it, then costs a few minutes of easy review instead of skipping unknown sounds.
+    public static let baselineStepBackUnits: Int = 3
+
+    /// Places the learner conservatively. The first sampled miss marks where knowledge ends; the learner starts
+    /// `baselineStepBackUnits` units earlier (never before the first unit). Samples above the first miss are ignored (they
+    /// may be guesses). Items answered with help are misses; modelled (guessable) items are not evidence at all. With no miss
+    /// the learner starts at the highest sampled unit, provided at least 2 of the last 3 samples are known.
     /// Earlier units get provisional `.learning` skills (never `.secure`: secure needs several sessions and days of evidence).
     public static func placeFromBaseline(index: CurriculumIndex, results: [BaselineItemResult], now: Date) -> BaselinePlacement {
         var verdict: [String: Bool] = [:]
         for r in results {
             guard index.unit(id: r.unitId) != nil else { continue }
+            if r.support == .modelled { continue }
             let ok: Bool = r.correct && r.support == .independent
             verdict[r.unitId] = (verdict[r.unitId] ?? true) && ok
         }
@@ -293,12 +343,14 @@ public enum Progression {
         }
         var placement: GraphemeUnit = lastSampled
         if let miss = sampled.first(where: { verdict[$0.id] == false }) {
-            placement = miss
-            let lastCorrectBelow: Int = sampled.last(where: { $0.order < miss.order && verdict[$0.id] == true })?.order ?? 0
-            for pid in miss.prerequisites {
-                if let p = index.unit(id: pid), p.order > lastCorrectBelow, p.order < placement.order {
-                    placement = p
-                }
+            let missPos: Int = index.units.firstIndex(where: { $0.id == miss.id }) ?? 0
+            placement = index.units[max(0, missPos - baselineStepBackUnits)]
+        } else {
+            // Nothing missed: trust the top of the range only when the last three samples back it up (2 of 3 known).
+            let bracket: [GraphemeUnit] = Array(sampled.suffix(3))
+            let known: Int = bracket.filter { verdict[$0.id] == true }.count
+            if known < min(2, bracket.count) {
+                placement = firstUnit
             }
         }
         if placement.order < firstUnit.order { placement = firstUnit }

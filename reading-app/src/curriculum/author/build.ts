@@ -16,6 +16,8 @@ import { UNITS, termFor } from './units';
 import { WORDS } from './words';
 import { TRICKY } from './tricky';
 import { NAMES, SENTENCES, STORIES } from './text';
+import { ACCENT_WORDS, HOMOPHONES, SAME_MEANING } from './meta';
+import { isInflection } from '../pictures';
 
 export const CONTENT_VERSION_BUILT = '0.1.0';
 
@@ -31,17 +33,23 @@ const CITE_RECEPTION = 'Term placement: Reception Overview PDF (herrick.leiceste
 const CITE_P4 = 'Phase 4 shape (no new GPCs, adjacent consonants, suffixes) per Reception Overview PDF (herrick.leicester.sch.uk) via search summary; unit split and guidance inferred from general Letters and Sounds family knowledge.';
 const CITE_Y1 = 'Placement: Year 1 Overview PDF (herrick.leicester.sch.uk) and LW Phase 5 Overview Dec 23 PDF (files.schudio.com/walmsleyprimary) via search summaries; order within terms and later items inferred from general Letters and Sounds family knowledge.';
 
+/** Last order of each stage boundary, derived from unit keys so inserting a unit never needs a number edited. */
+const endOf = (key: string): number => UNITS.findIndex((d) => d.key === key) + 1;
+const P2_END = endOf('nk');
+const P3_END = endOf('er');
+const P4_END = endOf('p4-suffix');
+
 const units: GraphemeUnit[] = UNITS.map((d, i) => {
   const order = i + 1;
   const id = unitId(d.key);
-  const phase = order <= 36 ? 2 : order <= 50 ? 3 : order <= 54 ? 4 : 5;
+  const phase = order <= P2_END ? 2 : order <= P3_END ? 3 : order <= P4_END ? 4 : 5;
   const pre = d.pre ?? (i === 0 ? [] : [UNITS[i - 1]!.key]);
   const consolidation = d.key.startsWith('p4-');
   return {
     id,
     order,
     phase,
-    stage: order <= 54 ? 'reception' : 'year1',
+    stage: order <= P4_END ? 'reception' : 'year1',
     term: termFor(order),
     phoneme: d.phoneme,
     graphemes: d.graphemes,
@@ -53,7 +61,7 @@ const units: GraphemeUnit[] = UNITS.map((d, i) => {
     trickyWords: [],
     misconceptions: (d.mis ?? []).map(([confusedWith, guidance]) => ({ confusedWith, guidance })),
     source: 'inferred',
-    citation: order <= 50 ? CITE_RECEPTION : order <= 54 ? CITE_P4 : CITE_Y1,
+    citation: order <= P3_END ? CITE_RECEPTION : order <= P4_END ? CITE_P4 : CITE_Y1,
   } satisfies GraphemeUnit;
 });
 const unitByKey = new Map(UNITS.map((d, i) => [d.key, units[i]!] as const));
@@ -104,10 +112,43 @@ for (const [group, entries] of Object.entries(WORDS)) {
   });
 }
 
+// ------------------------------------------------------------------ relationships: accent flags, homophones, same meaning
+for (const t of ACCENT_WORDS) {
+  const w = words.find((x) => x.text === t);
+  if (w) w.accentNote = true; // words that are not in the list (class, grass) are simply absent
+}
+const trickyByText = new Map(tricky.map((t) => [t.text, t] as const));
+for (const group of HOMOPHONES) {
+  for (const m of group) {
+    const others = group.filter((x) => x !== m);
+    const w = words.find((x) => x.text === m);
+    const t = trickyByText.get(m);
+    if (w) w.homophones = others;
+    else if (t) t.homophones = others;
+    else problems.push(`homophone group [${group.join(',')}]: "${m}" is neither a word nor a tricky word`);
+  }
+}
+for (const group of SAME_MEANING) {
+  const full = new Set<string>();
+  for (const m of group) {
+    if (!words.some((x) => x.text === m)) problems.push(`same-meaning group [${group.join(',')}]: "${m}" is not a word`);
+    for (const w of words) if (w.text === m || isInflection(w.text, m)) full.add(w.text);
+  }
+  for (const m of full) {
+    const w = words.find((x) => x.text === m)!;
+    const others = [...full].filter((x) => x !== m && !isInflection(x, m));
+    if (others.length) w.sameMeaningAs = [...new Set([...(w.sameMeaningAs ?? []), ...others])].sort();
+  }
+}
+if (problems.length) {
+  console.error(problems.join('\n'));
+  throw new Error(`${problems.length} authoring problem(s)`);
+}
+
 // ------------------------------------------------------------------ example words per unit
 for (const u of units) {
   const cand = wordGroupOrder
-    .filter(({ word }) => wordOrder.get(word.text) === u.order)
+    .filter(({ word }) => wordOrder.get(word.text) === u.order && !word.accentNote)
     .map(({ word }) => word);
   const rank = (w: Word): number => (w.emoji ? 0 : 100) + (w.text.endsWith('s') && w.text.length > 3 ? 50 : 0) + w.text.length;
   u.exampleWords = [...cand].sort((a, b) => rank(a) - rank(b)).slice(0, 8).map((w) => w.text);

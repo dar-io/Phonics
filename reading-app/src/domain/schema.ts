@@ -39,6 +39,12 @@ export const WordSchema = z.object({
   emoji: z.string().optional(), // picture; emoji only (original, no third-party art)
   pictureLabel: z.string().optional(), // accessible description
   concrete: z.boolean().default(true), // can be pictured
+  /** Words that sound identical but are spelled differently (sea/see). Never offer these as distractors for each other. */
+  homophones: z.array(z.string()).optional(),
+  /** Words that name the same picture or concept (cup/mug). Never offer these as distractors for each other. */
+  sameMeaningAs: z.array(z.string()).optional(),
+  /** True when the vowel depends on accent (bath/path: short vs long a). Kept out of unit example words. */
+  accentNote: z.boolean().optional(),
 });
 export type Word = z.infer<typeof WordSchema>;
 
@@ -68,6 +74,8 @@ export const TrickyWordSchema = z.object({
   introducedAtOrder: z.number().int().nonnegative(),
   trickyPart: z.string().optional(), // e.g. "the 'o' in 'to'"
   decodablePartsKnown: z.boolean().default(false),
+  /** Words that sound identical but are spelled differently (be/bee, to/too). */
+  homophones: z.array(z.string()).optional(),
 });
 export type TrickyWord = z.infer<typeof TrickyWordSchema>;
 

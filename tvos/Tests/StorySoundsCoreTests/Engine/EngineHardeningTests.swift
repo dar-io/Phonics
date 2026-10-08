@@ -173,11 +173,12 @@ final class EngineHardeningTests: XCTestCase {
 
     func testLaterUnitsStillNeedRealIndependentEvidence() {
         let idx: CurriculumIndex = fx.index
-        var snap: LearnerSnapshot = snapshotWithSecure(index: idx, upTo: 1)
-        var met: SkillState = SkillState(unitId: "g-a", track: .recognise)
-        met = Mastery.update(skill: met, attempt: makeAttempt(unit: "g-a", correct: true, support: .modelled), settings: MasterySettings(), now: day(0))
+        // g-t is the first unit with three choices; units 1 and 2 only offer one or two (see EngineReviewFixesTests).
+        var snap: LearnerSnapshot = snapshotWithSecure(index: idx, upTo: 2)
+        var met: SkillState = SkillState(unitId: "g-t", track: .recognise)
+        met = Mastery.update(skill: met, attempt: makeAttempt(unit: "g-t", correct: true, support: .modelled), settings: MasterySettings(), now: day(0))
         snap.skills.append(met)
-        XCTAssertEqual(Progression.nextUnit(index: idx, snapshot: snap, now: day(1))?.id, "g-a", "modelled help alone does not pass g-a")
+        XCTAssertEqual(Progression.nextUnit(index: idx, snapshot: snap, now: day(1))?.id, "g-t", "modelled help alone does not pass g-t")
     }
 
     // MARK: Parent overrides change what is planned

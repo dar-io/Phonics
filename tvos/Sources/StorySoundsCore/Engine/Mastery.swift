@@ -185,6 +185,13 @@ public enum Mastery {
                 s.nextReviewAt = Scheduler.nextReviewAfterError(from: now, settings: settings)
             }
         }
+
+        // Soft pass: steady effort lets the child move on, but the skill is NOT secure. Latch the moment it happens (so a later
+        // dip can never pull the child back and forth between units) and keep it in review at the shortest interval.
+        if s.status == .learning && Progression.meetsSoftPass(s, settings: settings) {
+            if s.softPassedAt == nil { s.softPassedAt = now }
+            s.nextReviewAt = Scheduler.softPassNextReviewAt(from: now, settings: settings)
+        }
         return s
     }
 
@@ -211,6 +218,11 @@ public enum Scheduler {
 
     public static func nextReviewAt(stage: Int, from now: Date, settings: MasterySettings) -> Date {
         return now.addingTimeInterval(intervalDays(forStage: stage, settings: settings) * secondsPerDay)
+    }
+
+    /// A soft-passed (not secure) skill comes back at the shortest rung of the ladder, every time it is practised.
+    public static func softPassNextReviewAt(from now: Date, settings: MasterySettings) -> Date {
+        return nextReviewAt(stage: 0, from: now, settings: settings)
     }
 
     /// After an error the next look comes sooner: at most one day away.

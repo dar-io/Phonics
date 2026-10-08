@@ -3,7 +3,7 @@
  * Usage: npx tsx scripts/validate-curriculum.ts      (exit code 1 on any problem)
  */
 import { curriculum } from '../src/curriculum/load';
-import { coverage, unitCoverage, validateCurriculum } from '../src/curriculum/validate';
+import { coverage, minimalPairRisks, unitCoverage, validateCurriculum } from '../src/curriculum/validate';
 
 declare const process: { exitCode?: number };
 
@@ -22,6 +22,9 @@ if (gaps.length) {
   console.log('\nCoverage notes (not errors): units whose own new content is thin');
   for (const g of gaps) console.log(`  #${g.unit.order} ${g.unit.id}: ${g.words} word(s), ${g.sentences} sentence(s) unlock here`);
 }
+
+console.log('\nMinimal-pair and ambiguity risks (notes, not errors):');
+for (const n of minimalPairRisks(curriculum)) console.log(`  - ${n}`);
 
 if (problems.length) {
   console.error(`\n${problems.length} problem(s):`);

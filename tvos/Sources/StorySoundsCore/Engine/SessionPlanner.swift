@@ -429,22 +429,26 @@ public struct BaselinePlan: Sendable {
 
 public enum Baseline {
     public static let stopAfterConsecutiveMisses: Int = 2
-    private static let fractions: [Double] = [0.0, 0.06, 0.14, 0.24, 0.36, 0.5, 0.64, 0.78, 0.92]
+    /// About this many items, spread evenly over the Reception range (roughly one every 3 to 4 units).
+    public static let targetItems: Int = 16
 
     public static func plan(curriculum: Curriculum, seed: UInt64) -> BaselinePlan {
         return plan(index: CurriculumIndex(curriculum), seed: seed)
     }
 
-    /// About nine items, each from a different unit spread across the sequence, easiest first.
+    /// About sixteen items, each from a different unit, spread evenly across the whole Reception range, easiest first.
+    /// Items that cannot be evidence are skipped: units whose recognition offers fewer than three choices (a guess passes),
+    /// and units whose "sound" is only an instruction clip.
     public static func plan(index: CurriculumIndex, seed: UInt64) -> BaselinePlan {
         var rng: SeededRNG = SeededRNG(seed: seed, salt: "baseline")
-        let eligible: [GraphemeUnit] = index.units.filter { !index.isConsolidation($0) }
+        var eligible: [GraphemeUnit] = index.units.filter { index.hasOwnSound($0) && $0.stage == .reception }
+        if eligible.isEmpty { eligible = index.units.filter { index.hasOwnSound($0) } }
         var activities: [Activity] = []
         if !eligible.isEmpty {
             var usedPositions: Set<Int> = []
-            for (n, f) in fractions.enumerated() {
-                var pos: Int = Int(f * Double(eligible.count - 1))
-                while usedPositions.contains(pos) && pos < eligible.count - 1 { pos += 1 }
+            let span: Double = Double(eligible.count - 1)
+            for n in 0..<targetItems {
+                let pos: Int = targetItems > 1 ? Int((Double(n) * span / Double(targetItems - 1)).rounded()) : 0
                 if !usedPositions.insert(pos).inserted { continue }
                 let unit: GraphemeUnit = eligible[pos]
                 let supported: [ActivityType] = ActivityGenerator.supportedTypes(index: index, unitId: unit.id, knownOrder: unit.order)
@@ -457,6 +461,7 @@ public enum Baseline {
                 for type in preference where supported.contains(type) {
                     let spec: ActivitySpec = ActivitySpec(unitId: unit.id, type: type, knownOrder: unit.order, choiceCount: 3)
                     if let a = ActivityGenerator.generate(curriculum: index.curriculum, index: index, spec: spec, rng: &rng) {
+                        if ActivityGenerator.isGuessable(a) { continue }
                         activities.append(a)
                         break
                     }
@@ -467,10 +472,12 @@ public enum Baseline {
                             stopAfterConsecutiveMisses: stopAfterConsecutiveMisses)
     }
 
-    /// True once the last `stopAfterConsecutiveMisses` results are all misses.
+    /// True once the last `stopAfterConsecutiveMisses` EVIDENCE results are all misses. Modelled results (guessable items) are
+    /// not evidence and neither extend nor break a run of misses.
     public static func shouldStop(results: [BaselineItemResult]) -> Bool {
-        if results.count < stopAfterConsecutiveMisses { return false }
-        return results.suffix(stopAfterConsecutiveMisses).allSatisfy { !($0.correct && $0.support == .independent) }
+        let evidence: [BaselineItemResult] = results.filter { $0.support != .modelled }
+        if evidence.count < stopAfterConsecutiveMisses { return false }
+        return evidence.suffix(stopAfterConsecutiveMisses).allSatisfy { !($0.correct && $0.support == .independent) }
     }
 
     public static func score(curriculum: Curriculum, results: [BaselineItemResult], now: Date) -> BaselinePlacement {

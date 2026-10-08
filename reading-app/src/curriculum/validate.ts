@@ -7,6 +7,7 @@ import { AudioManifestSchema } from '../domain/schema';
 import type { AudioManifest, Curriculum, GraphemeUnit } from '../domain/schema';
 import { firstTaughtOrder, joinGraphemes, normaliseSentence, unlockOrder } from './lookup';
 import type { WordRequirements } from './lookup';
+import { isInflection } from './pictures';
 import requirementsJson from './data/word-requirements.json';
 import manifestJson from '../../public/audio/manifest.json';
 
@@ -115,6 +116,45 @@ export function validateCurriculum(c: Curriculum, opts: ValidateOptions = {}): s
   for (const key of Object.keys(requirements)) {
     if (!wordsByText.has(key) && !c.sentences.some((s) => s.tokens.some((t) => t.kind === 'word' && t.text.toLowerCase() === key))) {
       err(`word requirement for "${key}": no such word`);
+    }
+  }
+
+  // ---- relationships: homophones, same meaning, pictures
+  const wordByText = new Map(c.words.map((w) => [w.text, w] as const));
+  const known = (t: string): boolean => wordByText.has(t) || trickyByLower.has(t.toLowerCase());
+  const homophoneLists: Array<[string, string[] | undefined]> = [
+    ...c.words.map((w): [string, string[] | undefined] => [w.text, w.homophones]),
+    ...c.trickyWords.map((t): [string, string[] | undefined] => [t.text, t.homophones]),
+  ];
+  const homophonesOf = new Map(homophoneLists.filter(([, h]) => h && h.length).map(([t, h]) => [t.toLowerCase(), h!] as const));
+  for (const [text, hs] of homophoneLists) {
+    for (const h of hs ?? []) {
+      if (h === text) err(`word ${text}: lists itself as a homophone`);
+      else if (!known(h)) err(`word ${text}: homophone "${h}" is not in the word or tricky word list`);
+      else if (!homophonesOf.get(h.toLowerCase())?.includes(text)) err(`word ${text}: homophone "${h}" does not list "${text}" back`);
+    }
+  }
+  for (const w of c.words) {
+    for (const m of w.sameMeaningAs ?? []) {
+      if (m === w.text) err(`word ${w.text}: lists itself in sameMeaningAs`);
+      else if (!wordByText.has(m)) err(`word ${w.text}: sameMeaningAs "${m}" is not in the word list`);
+      else if (!wordByText.get(m)!.sameMeaningAs?.includes(w.text)) err(`word ${w.text}: sameMeaningAs "${m}" does not list "${w.text}" back`);
+    }
+    if (w.emoji === undefined && w.concrete) err(`word ${w.text}: concrete but has no emoji (set concrete false when there is no safe picture)`);
+    if (w.emoji !== undefined && !w.concrete) err(`word ${w.text}: has an emoji but concrete is false`);
+  }
+  // One picture, one answer: two words may share an emoji only if they are inflections of one stem or marked sameMeaningAs.
+  const byEmoji = new Map<string, string[]>();
+  for (const w of c.words) if (w.emoji) byEmoji.set(w.emoji, [...(byEmoji.get(w.emoji) ?? []), w.text]);
+  for (const [emoji, texts] of byEmoji) {
+    for (let i = 0; i < texts.length; i++) {
+      for (let j = i + 1; j < texts.length; j++) {
+        const a = texts[i]!;
+        const b = texts[j]!;
+        const related = isInflection(a, b) || [...wordByText.keys()].some((x) => isInflection(a, x) && isInflection(b, x)) || wordByText.get(a)!.sameMeaningAs?.includes(b) || wordByText.get(b)!.sameMeaningAs?.includes(a) ||
+          wordByText.get(a)!.homophones?.includes(b);
+        if (!related) err(`picture ${emoji} is shared by "${a}" and "${b}" which are neither inflections of one word nor marked sameMeaningAs`);
+      }
     }
   }
 
@@ -231,4 +271,42 @@ export function unitCoverage(c: Curriculum, requirements: WordRequirements = def
   const sentAt = new Map<number, number>();
   for (const s of c.sentences) sentAt.set(s.unlockedByOrder ?? 0, (sentAt.get(s.unlockedByOrder ?? 0) ?? 0) + 1);
   return c.units.map((unit) => ({ unit, words: wordAt.get(unit.order) ?? 0, sentences: sentAt.get(unit.order) ?? 0 }));
+}
+
+// --------------------------------------------------------------------------- minimal-pair / ambiguity notes (not errors)
+const sameLen = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.filter((g, i) => g !== b[i]).length === 1;
+
+/**
+ * Human-readable risk notes for the distractor generator and the audio brief:
+ *  - homophone sets, with the unit order at which both are available and whether the pair is also a one-grapheme near-miss
+ *    (the near-miss distractor rule would pick the partner first);
+ *  - accent-dependent words;
+ *  - same-picture / same-meaning groups the engine must keep apart.
+ */
+export function minimalPairRisks(c: Curriculum, requirements: WordRequirements = defaultRequirements): string[] {
+  const taught = firstTaughtOrder(c.units);
+  const orderOf = (w: Curriculum['words'][number]): number => unlockOrder(w.graphemes, w.text, c.units, requirements, taught).order;
+  const byText = new Map(c.words.map((w) => [w.text, w] as const));
+  const notes: string[] = [];
+  const seen = new Set<string>();
+  for (const w of c.words) {
+    for (const h of w.homophones ?? []) {
+      const key = [w.text, h].sort().join('/');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const o = byText.get(h);
+      if (o) {
+        const near = sameLen(w.graphemes, o.graphemes) ? ' (one grapheme apart: the near-miss rule would pick it first)' : '';
+        notes.push(`homophones ${key}: both available from order ${Math.max(orderOf(w), orderOf(o))}${near}`);
+      } else {
+        notes.push(`homophones ${key}: partner is a tricky word (never a decodable distractor)`);
+      }
+    }
+  }
+  const accent = c.words.filter((w) => w.accentNote).map((w) => w.text);
+  if (accent.length) notes.push(`accent-dependent vowels (accentNote): ${accent.join(', ')}`);
+  const groups = new Set<string>();
+  for (const w of c.words) if (w.sameMeaningAs?.length) groups.add([w.text, ...w.sameMeaningAs].sort().join('/'));
+  notes.push(`${groups.size} sameMeaningAs word sets (same picture or same concept) must never appear together as answer + distractor`);
+  return notes;
 }

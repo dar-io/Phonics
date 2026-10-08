@@ -61,6 +61,26 @@ public struct CurriculumIndex: Sendable {
     private let trickyByKey: [String: TrickyWord]
     private let phonemeKeysByUnit: [String: Set<String>]
     private let focusByUnit: [String: [Word]]
+    private let firstUnitByGrapheme: [String: GraphemeUnit]
+    private let confusableByWord: [String: Set<String>]
+    private let pictureBySentence: [String: String]
+
+    /// Common homophone groups, used in addition to any `Word.homophones` in the content. Partners must never appear together
+    /// as answer and distractor, because a child who reads one of them correctly would be marked wrong for the other.
+    public static let builtInHomophoneGroups: [[String]] = [
+        ["sea", "see"], ["be", "bee"], ["ate", "eight"], ["to", "too", "two"], ["no", "know"], ["night", "knight"],
+        ["write", "right"], ["new", "knew"], ["which", "witch"], ["not", "knot"], ["cent", "sent", "scent"], ["dew", "due"],
+        ["fur", "fir"], ["cord", "chord"], ["past", "passed"], ["hear", "here"], ["wood", "would"], ["their", "there"],
+        ["bear", "bare"], ["pair", "pear"], ["sun", "son"], ["one", "won"], ["tail", "tale"], ["mail", "male"],
+        ["sail", "sale"], ["meet", "meat"], ["read", "reed"], ["road", "rode"], ["rain", "reign"], ["wait", "weight"],
+        ["week", "weak"], ["whole", "hole"], ["hi", "high"], ["by", "buy", "bye"], ["for", "four"], ["blue", "blew"],
+        ["flour", "flower"], ["grate", "great"], ["nose", "knows"], ["peace", "piece"], ["plain", "plane"],
+        ["steel", "steal"], ["toe", "tow"], ["where", "wear"], ["our", "hour"], ["eye", "i"], ["so", "sew"],
+        ["deer", "dear"], ["hare", "hair"], ["mane", "main"], ["stair", "stare"], ["tide", "tied"], ["toad", "towed"],
+        ["bored", "board"], ["mist", "missed"], ["bean", "been"], ["berry", "bury"], ["brake", "break"], ["ball", "bawl"],
+        ["fair", "fare"], ["heal", "heel"], ["horse", "hoarse"], ["lone", "loan"], ["pail", "pale"], ["pause", "paws"],
+        ["rose", "rows"], ["seam", "seem"], ["sight", "site"], ["tea", "tee"], ["wade", "weighed"], ["way", "weigh"],
+    ]
 
     public init(_ curriculum: Curriculum) {
         self.curriculum = curriculum
@@ -82,6 +102,7 @@ public struct CurriculumIndex: Sendable {
 
         // Taught graphemes, cumulative per unit position.
         var first: [String: Int] = [:]
+        var firstUnit: [String: GraphemeUnit] = [:]
         var lists: [[String]] = []
         var sets: [Set<String>] = []
         var curList: [String] = []
@@ -89,7 +110,10 @@ public struct CurriculumIndex: Sendable {
         for u in sortedUnits {
             if !consolidation.contains(u.id) {
                 for g in u.graphemes {
-                    if first[g] == nil { first[g] = u.order }
+                    if first[g] == nil {
+                        first[g] = u.order
+                        firstUnit[g] = u
+                    }
                     if !curSet.contains(g) {
                         curSet.insert(g)
                         curList.append(g)
@@ -100,6 +124,7 @@ public struct CurriculumIndex: Sendable {
             sets.append(curSet)
         }
         self.firstTaught = first
+        self.firstUnitByGrapheme = firstUnit
         self.taughtLists = lists
         self.taughtSets = sets
 
@@ -134,6 +159,24 @@ public struct CurriculumIndex: Sendable {
             if a.order != b.order { return a.order < b.order }
             return a.offset < b.offset
         }
+        var confusable: [String: Set<String>] = [:]
+        func link(_ a: String, _ b: String) {
+            let x: String = a.lowercased()
+            let y: String = b.lowercased()
+            if x == y { return }
+            confusable[x, default: []].insert(y)
+            confusable[y, default: []].insert(x)
+        }
+        for group in CurriculumIndex.builtInHomophoneGroups {
+            for i in 0..<group.count {
+                for j in (i + 1)..<max(i + 1, group.count) { link(group[i], group[j]) }
+            }
+        }
+        for w in curriculum.words {
+            for h in (w.homophones ?? []) { link(w.text, h) }
+            for h in (w.sameMeaningAs ?? []) { link(w.text, h) }
+        }
+        self.confusableByWord = confusable
         self.wordsByKey = byKey
         self.sortedWords = pairs.map { $0.word }
         self.sortedWordOrders = pairs.map { $0.order }
@@ -169,6 +212,16 @@ public struct CurriculumIndex: Sendable {
             if a.order != b.order { return a.order < b.order }
             return a.offset < b.offset
         }
+        var pictures: [String: String] = [:]
+        for s in curriculum.sentences {
+            if let e = s.emoji, !e.isEmpty { pictures[s.id] = e }
+        }
+        for st in curriculum.stories {
+            for page in st.pages where page.sentenceIds.count == 1 {
+                if let e = page.emoji, !e.isEmpty, let sid = page.sentenceIds.first, pictures[sid] == nil { pictures[sid] = e }
+            }
+        }
+        self.pictureBySentence = pictures
         self.sentencesById = sById
         self.sentenceUnlockById = sUnlock
         self.sortedSentences = sPairs.map { $0.sentence }
@@ -351,6 +404,57 @@ public struct CurriculumIndex: Sendable {
             if u.graphemes.contains(grapheme) { return u.audioId }
         }
         return nil
+    }
+
+    /// The unit whose sound `grapheme` makes in `word`: the latest unit listed in the word's requirements that teaches the
+    /// grapheme (so `o` in "cold" is g-o-oa, `oo` in "book" is g-oo-short), else the lowest-order unit teaching it.
+    public func unit(forGrapheme grapheme: String, inWord word: String) -> GraphemeUnit? {
+        if let reqs = curriculum.wordRequirements[word.lowercased()] {
+            var best: GraphemeUnit? = nil
+            for r in reqs {
+                guard let u = unit(id: r), !isConsolidation(u), u.graphemes.contains(grapheme) else { continue }
+                if let b = best, b.order >= u.order { continue }
+                best = u
+            }
+            if let b = best { return b }
+        }
+        return firstUnitByGrapheme[grapheme]
+    }
+
+    /// Per-word sound for a letter tile (see `unit(forGrapheme:inWord:)`). Prefer this over `audioId(forGrapheme:atOrder:)`
+    /// whenever the word is known: the first-taught sound contradicts the word for about 15% of words.
+    public func audioId(forGrapheme grapheme: String, inWord word: String) -> String? {
+        return unit(forGrapheme: grapheme, inWord: word)?.audioId
+    }
+
+    /// Instruction clips ("i-blend") are narration, never the sound of a letter.
+    public static func isInstructionAudio(_ audioId: String) -> Bool { return audioId.hasPrefix("i-") }
+
+    /// A unit whose audio is its own sound (not a consolidation unit and not an instruction clip).
+    public func hasOwnSound(_ unit: GraphemeUnit) -> Bool {
+        return !isConsolidation(unit) && !CurriculumIndex.isInstructionAudio(unit.audioId)
+    }
+
+    /// True when the unit's recognition items can offer at most TWO choices (units 1 and 2: only one or two graphemes are
+    /// taught). A guess is right half the time or always, so such items are introductions, not evidence.
+    public func hasFewChoiceRecognition(unitId: String) -> Bool {
+        guard let u = unit(id: unitId), hasOwnSound(u), applicableTracks(forUnit: unitId).contains(.recognise) else { return false }
+        return taughtGraphemes(upToOrder: u.order).count < ActivityGenerator.minChoicesForEvidence
+    }
+
+    /// Lower-cased words that must not be offered as a distractor for `text`: homophones and same-meaning words
+    /// (from `Word.homophones` / `Word.sameMeaningAs` plus the built-in table). Symmetric.
+    public func confusableWords(of text: String) -> Set<String> {
+        return confusableByWord[text.lowercased()] ?? []
+    }
+
+    public func areConfusable(_ a: String, _ b: String) -> Bool {
+        return confusableByWord[a.lowercased()]?.contains(b.lowercased()) ?? false
+    }
+
+    /// The picture for a sentence: its own emoji, else the emoji of the story page that shows only this sentence.
+    public func picture(forSentence sentence: Sentence) -> String? {
+        return pictureBySentence[sentence.id]
     }
 
     public func applicableTracks(forUnit unitId: String) -> [Track] {

@@ -141,7 +141,8 @@ final class CurriculumIndexTests: XCTestCase {
         for u in real.units {
             let tracks: [Track] = real.applicableTracks(forUnit: u.id)
             XCTAssertFalse(tracks.isEmpty, "\(u.id) has nothing to practise")
-            if real.isConsolidation(u) { XCTAssertFalse(tracks.contains(.recognise), u.id) } else { XCTAssertTrue(tracks.contains(.recognise), u.id) }
+            // Units with no sound of their own (consolidation units, and p4-suffix whose audio is an instruction clip) have no recognise track.
+            if real.hasOwnSound(u) { XCTAssertTrue(tracks.contains(.recognise), u.id) } else { XCTAssertFalse(tracks.contains(.recognise), u.id) }
         }
         XCTAssertEqual(real.units.first?.id, "g-s")
     }

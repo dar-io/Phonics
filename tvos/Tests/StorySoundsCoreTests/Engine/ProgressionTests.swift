@@ -43,14 +43,15 @@ final class ProgressionTests: XCTestCase {
     }
 
     func testNotSecureUntilEvidenceIsStrongEnough() {
-        // g-a has two sounds taught, so its items are real two-or-more-choice evidence (unit 1 is a special case, see below).
-        var snap: LearnerSnapshot = snapshotWithSecure(index: fx, upTo: 1)
-        let half: SkillState = feed(SkillState(unitId: "g-a", track: .recognise), Array(secureSteps().prefix(4)))
+        // g-t has three sounds taught, so its items are real three-choice evidence (units 1 and 2 are special cases: their
+        // items offer one or two choices, see EngineReviewFixesTests).
+        var snap: LearnerSnapshot = snapshotWithSecure(index: fx, upTo: 2)
+        let half: SkillState = feed(SkillState(unitId: "g-t", track: .recognise), Array(secureSteps().prefix(4)))
         snap.skills.append(half)
         let e: [String: UnitExplanation] = explain(fx, snap)
-        XCTAssertEqual(e["g-a"]?.status, .inProgress)
-        XCTAssertEqual(e["g-t"]?.status, .locked)
-        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-a")
+        XCTAssertEqual(e["g-t"]?.status, .inProgress)
+        XCTAssertEqual(e["g-p"]?.status, .locked)
+        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-t")
     }
 
     func testDueReviewShowsAsReviewDueButDoesNotRelockLaterUnits() {
@@ -132,25 +133,26 @@ final class ProgressionTests: XCTestCase {
             BaselineItemResult(unitId: "g-ai", correct: true),
         ]
         let p: BaselinePlacement = Progression.placeFromBaseline(index: fx, results: results, now: day(0))
-        // Missed g-n (6); its prerequisite g-i (5) was never shown to be known, so we start there, well below g-ai (8).
-        XCTAssertEqual(p.placementUnitId, "g-i")
-        XCTAssertEqual(p.placementOrder, 5)
-        XCTAssertEqual(Set(p.provisionalSkills.map { $0.unitId }), ["g-s", "g-a", "g-t", "g-p"])
+        // Missed g-n (6): placement steps back THREE units from the first miss, to g-t (3), well below g-ai (8). The later
+        // correct answers (possible guesses) are ignored.
+        XCTAssertEqual(p.placementUnitId, "g-t")
+        XCTAssertEqual(p.placementOrder, 3)
+        XCTAssertEqual(Set(p.provisionalSkills.map { $0.unitId }), ["g-s", "g-a"])
         for s in p.provisionalSkills {
             XCTAssertEqual(s.status, .learning, "provisional evidence is never secure")
             XCTAssertFalse(Mastery.isSecure(s, settings: MasterySettings()))
             XCTAssertNotNil(s.nextReviewAt)
         }
-        let proven: SkillState? = p.provisionalSkills.first(where: { $0.unitId == "g-t" })
+        let proven: SkillState? = p.provisionalSkills.first(where: { $0.unitId == "g-s" })
         let unproven: SkillState? = p.provisionalSkills.first(where: { $0.unitId == "g-a" })
         XCTAssertGreaterThan(proven?.score ?? 0, unproven?.score ?? 1)
 
         let snap: LearnerSnapshot = Progression.applyPlacement(p, to: makeSnapshot())
         XCTAssertTrue(snap.profile.baselineDone)
-        XCTAssertEqual(snap.profile.baselinePlacementOrder, 5)
-        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-i")
+        XCTAssertEqual(snap.profile.baselinePlacementOrder, 3)
+        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-t")
         let e: [String: UnitExplanation] = explain(fx, snap)
-        XCTAssertEqual(e["g-i"]?.status, .available)
+        XCTAssertEqual(e["g-t"]?.status, .available)
         XCTAssertEqual(e["g-n"]?.status, .locked)
         XCTAssertEqual(e["g-s"]?.status, .inProgress, "placed past, revisited gently")
     }
@@ -178,7 +180,7 @@ final class ProgressionTests: XCTestCase {
         let prompted: BaselinePlacement = Progression.placeFromBaseline(index: fx, results: [
             BaselineItemResult(unitId: "g-s", correct: true), BaselineItemResult(unitId: "g-a", correct: true, support: .prompted),
         ], now: day(0))
-        XCTAssertEqual(prompted.placementUnitId, "g-a")
+        XCTAssertEqual(prompted.placementUnitId, "g-s", "stepping back three units from the miss never goes below the first unit")
         // No usable results: start at the beginning.
         let none: BaselinePlacement = Progression.placeFromBaseline(index: fx, results: [BaselineItemResult(unitId: "nope", correct: true)], now: day(0))
         XCTAssertEqual(none.placementOrder, 1)

@@ -108,17 +108,28 @@ public enum ActivityGenerator {
         }
     }
 
+    /// A recognition item needs at least this many choices before a correct answer counts as evidence rather than a guess.
+    public static let minChoicesForEvidence: Int = 3
+
     /// An item with exactly one choice (unit 1) cannot be answered wrongly, so it is never independent evidence.
     public static func isSingleChoice(_ activity: Activity) -> Bool {
         if let n = choiceCount(activity) { return n <= 1 }
         return false
     }
 
-    /// The support level that should be RECORDED for an answer: a single-choice item is downgraded from
+    /// A sound-recognition item (`.choose`) with fewer than `minChoicesForEvidence` choices (units 1 and 2) can be passed by
+    /// guessing, so it is an introduction ("we do it together"), never independent evidence. Includes every single-choice item.
+    public static func isGuessable(_ activity: Activity) -> Bool {
+        if isSingleChoice(activity) { return true }
+        if case let .choose(choices, _, _) = activity.payload { return choices.count < minChoicesForEvidence }
+        return false
+    }
+
+    /// The support level that should be RECORDED for an answer: a single-choice or guessable item is downgraded from
     /// `.independent` to `.modelled`, everything else is returned unchanged. (The session planner already lists such
     /// activities in `SessionPlan.modelledKeys`; this is the same rule for callers that score answers directly.)
     public static func evidenceSupport(for activity: Activity, answered support: SupportLevel) -> SupportLevel {
-        if support == .independent && isSingleChoice(activity) { return .modelled }
+        if support == .independent && isGuessable(activity) { return .modelled }
         return support
     }
 
@@ -146,7 +157,7 @@ public enum ActivityGenerator {
 
     static func mixedPool(_ ctx: GenContext) -> [(unit: GraphemeUnit, grapheme: String)] {
         var out: [(unit: GraphemeUnit, grapheme: String)] = []
-        for u in ctx.index.units(upToOrder: ctx.k) where !ctx.index.isConsolidation(u) {
+        for u in ctx.index.units(upToOrder: ctx.k) where ctx.index.hasOwnSound(u) {
             for g in u.graphemes { out.append((unit: u, grapheme: g)) }
         }
         return out
@@ -154,6 +165,15 @@ public enum ActivityGenerator {
 
     static func unitTricky(_ ctx: GenContext) -> [String] {
         return unique(ctx.unit.trickyWords.filter { ctx.index.isTrickyIntroduced($0, atOrder: ctx.k) })
+    }
+
+    /// The unit's tricky words that have at least one distractor that is not a homophone of them (to/too, there/their).
+    static func trickyTargets(_ ctx: GenContext) -> [String] {
+        let all: [String] = introducedTricky(ctx)
+        return unitTricky(ctx).filter { t in
+            let blocked: Set<String> = ctx.index.confusableWords(of: t)
+            return all.contains { $0.lowercased() != t.lowercased() && !blocked.contains($0.lowercased()) }
+        }
     }
 
     static func introducedTricky(_ ctx: GenContext) -> [String] {
@@ -170,6 +190,8 @@ public enum ActivityGenerator {
         let focusKeys: Set<String> = Set(ctx.focus.map { $0.text.lowercased() })
         var out: [SentenceBlank] = []
         for s in ctx.index.decodableSentences(atOrder: ctx.k) {
+            // A cloze is only unambiguous with a picture to anchor the missing word.
+            if ctx.index.picture(forSentence: s) == nil { continue }
             let isNew: Bool = ctx.index.unlockOrder(forSentence: s) == ctx.unit.order
             var focusIdx: [Int] = []
             var wordIdx: [Int] = []
@@ -181,7 +203,11 @@ public enum ActivityGenerator {
             }
             if focusIdx.isEmpty && !isNew { continue }
             let use: [Int] = focusIdx.isEmpty ? wordIdx : focusIdx
-            for i in use { out.append(SentenceBlank(sentence: s, index: i)) }
+            for i in use {
+                guard case let .word(text, graphemes) = s.tokens[i] else { continue }
+                let target: Word = ctx.index.word(text: text) ?? Word(text: text, graphemes: graphemes, emoji: nil, pictureLabel: nil, concrete: nil)
+                if hasClozeDistractor(target: target, pool: ctx.decodable, index: ctx.index) { out.append(SentenceBlank(sentence: s, index: i)) }
+            }
         }
         return out
     }
@@ -189,7 +215,8 @@ public enum ActivityGenerator {
     static func supports(_ type: ActivityType, _ ctx: GenContext) -> Bool {
         switch type {
         case .listenChooseSound, .findGrapheme, .matchSoundGrapheme:
-            return !ctx.unitGraphemes.isEmpty
+            // A unit whose "audio" is an instruction clip (p4-suffix) has no sound of its own to recognise.
+            return !ctx.unitGraphemes.isEmpty && ctx.index.hasOwnSound(ctx.unit)
         case .mixedReview:
             return !mixedPool(ctx).isEmpty
         case .blendToWord:
@@ -201,7 +228,7 @@ public enum ActivityGenerator {
             if focusEmoji.isEmpty { return false }
             return Set(ctx.emojiWords.compactMap { $0.emoji }).count >= 2
         case .identifyTricky:
-            return !unitTricky(ctx).isEmpty && introducedTricky(ctx).count >= 2
+            return !trickyTargets(ctx).isEmpty && introducedTricky(ctx).count >= 2
         case .completeSentence:
             return !sentenceCandidates(ctx).isEmpty
         case .readStory:
@@ -265,9 +292,11 @@ public enum ActivityGenerator {
     }
 
     /// Distractor words from `pool`: near-misses (one grapheme different) first, then similar shapes, then anything.
-    private static func wordDistractors(target: Word, pool: [Word], count: Int, rng: inout SeededRNG) -> [Word] {
+    /// Homophones and same-meaning words of the target are never offered (two answers would be correct).
+    private static func wordDistractors(target: Word, pool: [Word], count: Int, index: CurriculumIndex, rng: inout SeededRNG) -> [Word] {
         if count <= 0 { return [] }
         var seen: Set<String> = [target.text.lowercased()]
+        let blocked: Set<String> = confusables(of: target, index: index)
         var near: [Word] = []
         var similar: [Word] = []
         var rest: [Word] = []
@@ -275,6 +304,7 @@ public enum ActivityGenerator {
             let key: String = w.text.lowercased()
             if seen.contains(key) { continue }
             seen.insert(key)
+            if blocked.contains(key) { continue }
             if differingPositions(target.graphemes, w.graphemes) == 1 {
                 near.append(w)
             } else if w.graphemes.count == target.graphemes.count
@@ -287,6 +317,78 @@ public enum ActivityGenerator {
         }
         var ordered: [Word] = rng.shuffled(near)
         ordered.append(contentsOf: rng.shuffled(similar))
+        if ordered.count < count { ordered.append(contentsOf: rng.shuffled(rest)) }
+        return Array(ordered.prefix(count))
+    }
+
+    /// Lower-cased words that clash with `target`: the index's homophone / same-meaning table plus the word's own fields.
+    static func confusables(of target: Word, index: CurriculumIndex) -> Set<String> {
+        var out: Set<String> = index.confusableWords(of: target.text)
+        for h in (target.homophones ?? []) { out.insert(h.lowercased()) }
+        for h in (target.sameMeaningAs ?? []) { out.insert(h.lowercased()) }
+        return out
+    }
+
+    /// Edit distance between two grapheme sequences (substitute / insert / delete one grapheme = 1).
+    /// A distance of 1 is a "minimal pair" such as cat/cut or mop/map.
+    static func graphemeDistance(_ a: [String], _ b: [String]) -> Int {
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev: [Int] = Array(0...b.count)
+        for i in 1...a.count {
+            var cur: [Int] = [Int](repeating: 0, count: b.count + 1)
+            cur[0] = i
+            for j in 1...b.count {
+                let cost: Int = a[i - 1] == b[j - 1] ? 0 : 1
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            }
+            prev = cur
+        }
+        return prev[b.count]
+    }
+
+    private static func firstVowelGrapheme(_ graphemes: [String]) -> String? {
+        for g in graphemes {
+            if let c = g.first, "aeiou".contains(c) { return g }
+        }
+        return nil
+    }
+
+    private static func isClozeCandidate(_ w: Word, target: Word, blocked: Set<String>) -> Bool {
+        let key: String = w.text.lowercased()
+        if key == target.text.lowercased() || blocked.contains(key) { return false }
+        if w.graphemes.isEmpty { return false }
+        return graphemeDistance(target.graphemes, w.graphemes) >= 2
+    }
+
+    /// True when at least one word in `pool` can be offered in a cloze for `target` (stops at the first hit).
+    static func hasClozeDistractor(target: Word, pool: [Word], index: CurriculumIndex) -> Bool {
+        let blocked: Set<String> = confusables(of: target, index: index)
+        for w in pool where isClozeCandidate(w, target: target, blocked: blocked) { return true }
+        return false
+    }
+
+    /// Cloze distractors: never a homophone / synonym, always at least two graphemes away from the answer (so no minimal
+    /// pair such as mop/map also fits), preferring words whose first grapheme AND vowel both differ.
+    private static func clozeDistractors(target: Word, pool: [Word], count: Int, index: CurriculumIndex, rng: inout SeededRNG) -> [Word] {
+        if count <= 0 { return [] }
+        let blocked: Set<String> = confusables(of: target, index: index)
+        let targetVowel: String? = firstVowelGrapheme(target.graphemes)
+        var seen: Set<String> = [target.text.lowercased()]
+        var both: [Word] = []
+        var one: [Word] = []
+        var rest: [Word] = []
+        for w in pool {
+            let key: String = w.text.lowercased()
+            if seen.contains(key) { continue }
+            seen.insert(key)
+            if !isClozeCandidate(w, target: target, blocked: blocked) { continue }
+            let initialDiffers: Bool = w.graphemes.first != target.graphemes.first
+            let vowelDiffers: Bool = firstVowelGrapheme(w.graphemes) != targetVowel
+            if initialDiffers && vowelDiffers { both.append(w) } else if initialDiffers || vowelDiffers { one.append(w) } else { rest.append(w) }
+        }
+        var ordered: [Word] = rng.shuffled(both)
+        if ordered.count < count { ordered.append(contentsOf: rng.shuffled(one)) }
         if ordered.count < count { ordered.append(contentsOf: rng.shuffled(rest)) }
         return Array(ordered.prefix(count))
     }
@@ -305,6 +407,8 @@ public enum ActivityGenerator {
         var similar: [String] = []
         var rest: [String] = []
         for g in ctx.taughtList where !excluded.contains(g) && !tier1.contains(g) {
+            // A grapheme whose only "sound" is an instruction clip (-ed) cannot be played as a choice.
+            if let a = ctx.index.audioId(forGrapheme: g, atOrder: ctx.k), CurriculumIndex.isInstructionAudio(a) { continue }
             if targetChars.isDisjoint(with: Set(g)) { rest.append(g) } else { similar.append(g) }
         }
         var ordered: [String] = rng.shuffled(tier1)
@@ -327,10 +431,14 @@ public enum ActivityGenerator {
         return tiles
     }
 
-    private static func soundAudio(_ graphemes: [String], ctx: GenContext) -> [String] {
+    /// The sounds of a word's graphemes, in order, each resolved FOR THAT WORD (o in "cold" is /oa/, oo in "book" is short).
+    /// Instruction clips are never a sound, and repeated sounds are kept (m-u-m).
+    private static func soundAudio(_ graphemes: [String], word: String, ctx: GenContext) -> [String] {
         var ids: [String] = []
         for g in graphemes {
-            if let a = ctx.index.audioId(forGrapheme: g, atOrder: ctx.k) { ids.append(a) }
+            guard let a = ctx.index.audioId(forGrapheme: g, inWord: word) else { continue }
+            if CurriculumIndex.isInstructionAudio(a) { continue }
+            ids.append(a)
         }
         return ids
     }
@@ -424,7 +532,7 @@ public enum ActivityGenerator {
     private static func buildBlend(ctx: GenContext, spec: ActivitySpec, rng: inout SeededRNG) -> Activity? {
         let type: ActivityType = .blendToWord
         guard let target = pickFresh(ctx.focusMulti, keyOf: { key(type, ctx.unit.id, $0.text) }, spec: spec, rng: &rng) else { return nil }
-        let distractors: [Word] = wordDistractors(target: target, pool: ctx.decodable, count: max(1, spec.choiceCount - 1), rng: &rng)
+        let distractors: [Word] = wordDistractors(target: target, pool: ctx.decodable, count: max(1, spec.choiceCount - 1), index: ctx.index, rng: &rng)
         if distractors.isEmpty { return nil }
         var choices: [Choice] = [wordChoice(target, correct: true)]
         for d in distractors { choices.append(wordChoice(d, correct: false)) }
@@ -432,11 +540,11 @@ public enum ActivityGenerator {
         var graphemes: [String] = target.graphemes
         for d in distractors { graphemes.append(contentsOf: d.graphemes) }
         var audio: [String] = ["i-lets-sound-it-out"]
-        audio.append(contentsOf: soundAudio(target.graphemes, ctx: ctx))
+        audio.append(contentsOf: soundAudio(target.graphemes, word: target.text, ctx: ctx))
         return Activity(key: key(type, ctx.unit.id, target.text), type: type, unitId: ctx.unit.id, track: .blend,
                         prompt: "Blend the sounds. Which word is it?",
                         spokenPrompt: "Let's sound it out together. Which word do the sounds make?",
-                        audioIds: unique(audio),
+                        audioIds: audio,
                         payload: .blend(graphemes: target.graphemes, word: target.text, choices: choices, emoji: target.emoji),
                         graphemesUsed: unique(graphemes), trickyUsed: [])
     }
@@ -486,6 +594,7 @@ public enum ActivityGenerator {
             if target.graphemes.contains(g) { continue }
             if GraphemeText.isSplit(g) { continue }
             if wordText.contains(g) { continue }
+            if formsConfusableWord(target: target, tile: g, index: ctx.index) { continue }
             if confused.contains(g) { tier1.append(g) } else { rest.append(g) }
         }
         var ordered: [String] = rng.shuffled(tier1)
@@ -498,6 +607,19 @@ public enum ActivityGenerator {
                         audioIds: ["i-listen", AudioIds.word(target.text)],
                         payload: .build(word: target.text, graphemes: target.graphemes, tiles: tiles, emoji: target.emoji),
                         graphemesUsed: unique(target.graphemes + extra), trickyUsed: [])
+    }
+
+    /// True when swapping one of the word's graphemes for `tile` spells a homophone / same-meaning partner (see/sea), which
+    /// would make a second correct build.
+    private static func formsConfusableWord(target: Word, tile: String, index: CurriculumIndex) -> Bool {
+        let blocked: Set<String> = confusables(of: target, index: index)
+        if blocked.isEmpty { return false }
+        for i in 0..<target.graphemes.count {
+            var swapped: [String] = target.graphemes
+            swapped[i] = tile
+            if let text = GraphemeText.join(swapped), blocked.contains(text.lowercased()) { return true }
+        }
+        return false
     }
 
     // MARK: Read
@@ -517,7 +639,7 @@ public enum ActivityGenerator {
             seenEmoji.insert(e)
             pool.append(w)
         }
-        let distractors: [Word] = wordDistractors(target: target, pool: pool, count: max(1, spec.choiceCount - 1), rng: &rng)
+        let distractors: [Word] = wordDistractors(target: target, pool: pool, count: max(1, spec.choiceCount - 1), index: ctx.index, rng: &rng)
         if distractors.isEmpty { return nil }
         var choices: [Choice] = [Choice(id: target.text, label: target.pictureLabel ?? target.text, audioId: nil, emoji: target.emoji, correct: true)]
         for d in distractors {
@@ -536,11 +658,12 @@ public enum ActivityGenerator {
 
     private static func buildTricky(ctx: GenContext, spec: ActivitySpec, rng: inout SeededRNG) -> Activity? {
         let type: ActivityType = .identifyTricky
-        guard let target = pickFresh(unitTricky(ctx), keyOf: { key(type, ctx.unit.id, $0) }, spec: spec, rng: &rng) else { return nil }
+        guard let target = pickFresh(trickyTargets(ctx), keyOf: { key(type, ctx.unit.id, $0) }, spec: spec, rng: &rng) else { return nil }
         let tKey: String = target.lowercased()
         var similar: [String] = []
         var rest: [String] = []
-        for t in introducedTricky(ctx) where t.lowercased() != tKey {
+        let trickyBlocked: Set<String> = ctx.index.confusableWords(of: target)
+        for t in introducedTricky(ctx) where t.lowercased() != tKey && !trickyBlocked.contains(t.lowercased()) {
             if t.lowercased().first == tKey.first || t.count == target.count { similar.append(t) } else { rest.append(t) }
         }
         var ordered: [String] = rng.shuffled(similar)
@@ -570,7 +693,7 @@ public enum ActivityGenerator {
         let sentence: Sentence = pick.sentence
         guard case let .word(targetText, targetGraphemes) = sentence.tokens[pick.index] else { return nil }
         let target: Word = ctx.index.word(text: targetText) ?? Word(text: targetText, graphemes: targetGraphemes, emoji: nil, pictureLabel: nil, concrete: nil)
-        let distractors: [Word] = wordDistractors(target: target, pool: ctx.decodable, count: max(1, spec.choiceCount - 1), rng: &rng)
+        let distractors: [Word] = clozeDistractors(target: target, pool: ctx.decodable, count: max(1, spec.choiceCount - 1), index: ctx.index, rng: &rng)
         if distractors.isEmpty { return nil }
         var choices: [Choice] = [Choice(id: targetText, label: targetText, audioId: AudioIds.word(targetText), emoji: nil, correct: true)]
         var seenIds: Set<String> = [targetText]
@@ -596,7 +719,7 @@ public enum ActivityGenerator {
                         prompt: "Read the sentence. Which word fits?",
                         spokenPrompt: "Read the sentence. Which word goes in the gap?",
                         audioIds: ["i-read-the-sentence"],
-                        payload: .sentence(tokens: tokens, blankIndex: pick.index, choices: choices, emoji: sentence.emoji),
+                        payload: .sentence(tokens: tokens, blankIndex: pick.index, choices: choices, emoji: ctx.index.picture(forSentence: sentence) ?? sentence.emoji),
                         graphemesUsed: unique(graphemes), trickyUsed: unique(tricky))
     }
 
@@ -635,7 +758,7 @@ public enum ActivityGenerator {
         if let answer = rng.pick(storyWords) {
             let notInStory: [Word] = ctx.decodable.filter { !storyWordKeys.contains($0.text.lowercased()) }
             let wrong: [Word] = wordDistractors(target: Word(text: answer, graphemes: [], emoji: nil, pictureLabel: nil, concrete: nil),
-                                                pool: notInStory, count: max(1, spec.choiceCount - 1), rng: &rng)
+                                                pool: notInStory, count: max(1, spec.choiceCount - 1), index: ctx.index, rng: &rng)
             if !wrong.isEmpty {
                 var qChoices: [Choice] = [Choice(id: answer, label: answer, audioId: AudioIds.word(answer), emoji: nil, correct: true)]
                 for w in wrong {

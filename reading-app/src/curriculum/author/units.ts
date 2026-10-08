@@ -93,15 +93,20 @@ export const UNITS: UnitDef[] = [
   u('sh', ['sh'], '/sh/', 'digraph', "A long, smooth, quiet 'shhh' like telling someone to be quiet. Two letters, one sound.", ['s', 'h'],
     [['ch', "sh is a long smooth sound you can hold; ch is a short sharp one."],
      ['s', "sh is rounder and has the lips pushed forward; s is a thin hiss."]]),
-  u('th', ['th'], '/th/', 'digraph', "Tongue tip between the teeth and blow gently - 'thhh' (as in 'thin'). The same two letters can be voiced - buzz the throat for 'this', 'that'. No 'thuh'.", ['t', 'h'],
+  u('th', ['th'], '/th/', 'digraph', "Unvoiced th, as in 'thin', 'thumb' and 'path': tongue tip between the teeth and blow gently - 'thhh'. Only air comes out, so nothing buzzes in your throat. No 'thuh'.", ['t', 'h'],
     [['f', "th keeps the tongue between the teeth; f puts the top teeth on the lip."],
-     ['t', "th lets air flow past the tongue tip; t is a quick tap."]]),
+     ['t', "th lets air flow past the tongue tip; t is a quick tap."],
+     ['th-voiced', "The same two letters also have a buzzing sound (this, that), taught next. For 'thin' and 'path' the throat stays still."]]),
+  u('th-voiced', ['th'], '/dh/', 'digraph', "Voiced th, as in 'this', 'that', 'then' and 'with': the same tongue-between-the-teeth position as in 'thin', but switch your voice on so your throat buzzes - 'dhhh'. Hold it briefly. No 'duh'.", ['th'],
+    [['th', "Put a hand on your throat: 'this' buzzes, 'thin' does not. Same two letters, same tongue, one is voiced and one is whispered."],
+     ['d', "dh keeps the tongue between the teeth; d is a quick tap behind the top teeth."],
+     ['v', "dh keeps the tongue between the teeth; v puts the top teeth on the lip."]]),
   u('ng', ['ng'], '/ng/', 'digraph', "The sound at the end of 'ring': the back of the tongue lifts and you hum - 'ng'. It is ONE sound, not 'n' then 'g'.", ['n', 'g'],
     [['n', "n has the tongue tip up; ng uses the back of the tongue."]]),
   u('nk', ['nk'], '/ngk/', 'digraph', "The 'ng' hum followed straight away by a quick /k/, as at the end of 'pink'. Say 'ngk' as one chunk.", ['ng', 'k']),
 
   // ---------------- Phase 3, Reception Spring 1 ----------------
-  u('ai', ['ai'], '/ai/', 'digraph', "The long 'ai' sound as in 'rain' - say 'ay' with a smile. Two letters, one sound. Usually in the middle of a word.", ['nk', 'th']),
+  u('ai', ['ai'], '/ai/', 'digraph', "The long 'ai' sound as in 'rain' - say 'ay' with a smile. Two letters, one sound. Usually in the middle of a word.", ['nk', 'th-voiced']),
   u('ee', ['ee'], '/ee/', 'digraph', "A long, smiling 'eee' as in 'see'. Two letters, one sound.", undefined,
     [['e', "ee is the long 'eee' sound; the single letter e is the short 'e' of 'egg'."]]),
   u('igh', ['igh'], '/igh/', 'trigraph', "Three letters, one sound: the long 'igh' as in 'high' (the same as the letter name 'I'). The g and h are silent partners.", undefined),
@@ -213,7 +218,9 @@ export const UNITS: UnitDef[] = [
 ];
 
 /** Term label per 1-based order (inferred week split; term level is search-corroborated per docs/curriculum-map.md). */
-export function termFor(order: number): string {
+export function termFor(rawOrder: number): string {
+  // The voiced-th unit (order 35) shares the unvoiced-th week; later orders are shifted by one.
+  const order = rawOrder >= 35 ? rawOrder - 1 : rawOrder;
   if (order <= 4) return 'Reception Autumn 1, week 1';
   if (order <= 8) return 'Reception Autumn 1, week 2';
   if (order <= 12) return 'Reception Autumn 1, week 3';

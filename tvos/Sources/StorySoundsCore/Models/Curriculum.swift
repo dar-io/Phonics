@@ -39,6 +39,36 @@ public struct Word: Codable, Hashable, Sendable {
     public let emoji: String?
     public let pictureLabel: String?
     public let concrete: Bool?
+    /// Words that sound the same (sea/see). Never offered together as answer and distractor. Optional in the content.
+    public let homophones: [String]?
+    /// Words with (nearly) the same meaning, which would also fit a picture or sentence. Optional in the content.
+    public let sameMeaningAs: [String]?
+
+    private enum CodingKeys: String, CodingKey { case text, graphemes, emoji, pictureLabel, concrete, homophones, sameMeaningAs }
+
+    public init(text: String, graphemes: [String], emoji: String?, pictureLabel: String?, concrete: Bool?,
+                homophones: [String]? = nil, sameMeaningAs: [String]? = nil) {
+        self.text = text; self.graphemes = graphemes; self.emoji = emoji; self.pictureLabel = pictureLabel
+        self.concrete = concrete; self.homophones = homophones; self.sameMeaningAs = sameMeaningAs
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.text = try c.decode(String.self, forKey: .text)
+        self.graphemes = try c.decode([String].self, forKey: .graphemes)
+        self.emoji = try c.decodeIfPresent(String.self, forKey: .emoji)
+        self.pictureLabel = try c.decodeIfPresent(String.self, forKey: .pictureLabel)
+        self.concrete = try c.decodeIfPresent(Bool.self, forKey: .concrete)
+        self.homophones = Word.flexibleList(c, .homophones)
+        self.sameMeaningAs = Word.flexibleList(c, .sameMeaningAs)
+    }
+
+    /// Accepts either a list of strings or a single string; anything else (or nothing) is nil, never a decode failure.
+    private static func flexibleList(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> [String]? {
+        if let list = try? c.decodeIfPresent([String].self, forKey: key) { return list }
+        if let one = try? c.decodeIfPresent(String.self, forKey: key) { return [one] }
+        return nil
+    }
 }
 
 public enum SentenceToken: Codable, Hashable, Sendable {

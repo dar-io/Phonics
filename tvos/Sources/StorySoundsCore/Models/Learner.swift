@@ -47,6 +47,9 @@ public struct SkillState: Codable, Hashable, Sendable {
     public var reviewStage: Int = 0
     public var nextReviewAt: Date?
     public var struggleStreak: Int = 0
+    /// Set (and kept) once the learner has shown enough steady effort to move on without being secure (see
+    /// `MasterySettings.softPassAttempts`). Evidence-driven only; a parent override never writes it.
+    public var softPassedAt: Date?
     public init(unitId: String, track: Track) { self.unitId = unitId; self.track = track }
 }
 
@@ -78,7 +81,35 @@ public struct MasterySettings: Codable, Hashable, Sendable {
     public var reviewLadderDays: [Double] = [1, 3, 7, 14, 30, 60]
     public var sessionMinutes: Int = 7
     public var useResponseTime: Bool = true
+    /// Soft pass: a child who keeps trying is never trapped. A unit counts as passed for introducing the next one after
+    /// this many independent attempts, across this many sessions, with at least this score. It is NOT mastery.
+    public var softPassAttempts: Int = 12
+    public var softPassSessions: Int = 3
+    public var softPassScore: Double = 0.6
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case secureScore, minAttempts, minSessions, minDays, minActivityTypes, maxRecentErrors, reviewLadderDays
+        case sessionMinutes, useResponseTime, softPassAttempts, softPassSessions, softPassScore
+    }
+
+    /// Every key is optional, so settings saved by an older version (without the soft-pass fields) still decode.
+    public init(from decoder: Decoder) throws {
+        self.init()
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        secureScore = try c.decodeIfPresent(Double.self, forKey: .secureScore) ?? secureScore
+        minAttempts = try c.decodeIfPresent(Int.self, forKey: .minAttempts) ?? minAttempts
+        minSessions = try c.decodeIfPresent(Int.self, forKey: .minSessions) ?? minSessions
+        minDays = try c.decodeIfPresent(Int.self, forKey: .minDays) ?? minDays
+        minActivityTypes = try c.decodeIfPresent(Int.self, forKey: .minActivityTypes) ?? minActivityTypes
+        maxRecentErrors = try c.decodeIfPresent(Int.self, forKey: .maxRecentErrors) ?? maxRecentErrors
+        reviewLadderDays = try c.decodeIfPresent([Double].self, forKey: .reviewLadderDays) ?? reviewLadderDays
+        sessionMinutes = try c.decodeIfPresent(Int.self, forKey: .sessionMinutes) ?? sessionMinutes
+        useResponseTime = try c.decodeIfPresent(Bool.self, forKey: .useResponseTime) ?? useResponseTime
+        softPassAttempts = try c.decodeIfPresent(Int.self, forKey: .softPassAttempts) ?? softPassAttempts
+        softPassSessions = try c.decodeIfPresent(Int.self, forKey: .softPassSessions) ?? softPassSessions
+        softPassScore = try c.decodeIfPresent(Double.self, forKey: .softPassScore) ?? softPassScore
+    }
 }
 
 public enum OverrideMode: String, Codable, Sendable { case unlocked, revisit }
