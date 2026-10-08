@@ -1,3 +1,5 @@
+import Foundation
+
 /// A stored snapshot together with the moment it was last saved (the envelope's `savedAt`).
 public struct StoredSnapshot: Sendable {
     public let snapshot: LearnerSnapshot
