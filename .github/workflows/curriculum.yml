@@ -1,0 +1,22 @@
+name: curriculum tools
+on:
+  push:
+    branches: ['claude/story-sounds-phonics-app']
+    paths: ['curriculum-tools/**', '.github/workflows/curriculum.yml']
+  workflow_dispatch:
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: curriculum-tools } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: npm ci --no-audit --no-fund
+      - name: Rebuild, validate, audit and test the curriculum
+        run: npm run verify
+      - name: Generated files must be committed (no drift)
+        run: git diff --exit-code -- . ../tvos/Sources/StorySoundsCore/Resources
+      - name: Type check
+        run: npx tsc --noEmit
