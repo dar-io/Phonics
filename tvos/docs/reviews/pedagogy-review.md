@@ -200,7 +200,7 @@ Warm and accurate: banned-word list enforced by tests and by `safe()` (a decodab
 - No pressure: no countdown, no timers visible; fluency `softTargetSeconds` exists in the payload but is not used by the view (confirmed by grep: only the "no timer, no ranking" comment). Next is a manual button. Menu button opens a calm "Take a break?" overlay ("Your stars and stickers are safe"); partial sessions of >= 3 activities still earn an effort sticker and are saved.
 - Rewards (`Stickers.swift`, `SummaryView`, `StickerBookView`): effort sticker once per session (>= 3 activities), practice milestones at sessions 1, 3, 5, 10, 20, 30, 50, 75, 100, mastery sticker per unit. No streaks, no loss, no ranking, no scores shown, nothing removed. Fixed (non-random) schedule, so not a variable-ratio hook. Design is non-manipulative. Notes: the effort sticker for only 3 activities is a very low bar (acceptable, but consider 5); mastery stickers named "Sound /s/" read oddly for a pre-reader (a picture-only title is better); the sticker book uses emoji whose rendering depends on tvOS font coverage (m14).
 - Autoplay prompts with "Hear it again" and "Slowly" and Play/Pause: good. Captions on by default.
-- Things I could not assess: actual audio, focus movement with the Siri Remote, VoiceOver (a separate accessibility review exists in `reviews/accessibility-hig-review.md`).
+- Things I could not assess: actual audio, focus movement with the Siri Remote, VoiceOver (a separate accessibility review exists in `accessibility-hig-review.md`).
 
 ---
 

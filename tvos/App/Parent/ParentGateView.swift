@@ -53,11 +53,13 @@ struct ParentGateView: View {
             Text("Grown-ups only").font(Theme.titleFont).accessibilityAddTraits(.isHeader)
             stageContent
             Button(action: onExit) {
+                // The full-width frame must be INSIDE the label: the focusable region is the styled label, so a frame
+                // applied outside the button does not widen it. A full-width target means pressing down from ANY answer
+                // column reaches Back (tvOS only moves focus to a control that overlaps horizontally).
                 Label("Back to Story Sounds", systemImage: "chevron.left").font(Theme.bodyFont)
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(FocusCardStyle())
-            // Full width so pressing down from ANY answer column lands on it (the focus engine follows geometry).
-            .frame(maxWidth: .infinity)
             .focused($focus, equals: .back)
             .a11yID("parentgate.back")
             .accessibilityLabel("Back to Story Sounds")
