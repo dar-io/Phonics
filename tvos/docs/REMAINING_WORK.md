@@ -87,3 +87,6 @@ So these are not re-opened by mistake. "Fixed" means the change is present in th
 - Code quality: the load-error screen crash; restore and profile selection; overrides now change what is played; speech no longer queues up; storage budgets; deterministic UI tests (`-uitest-seed`, `-uitest-session-minutes`, `-uitest-first-choice-wrong`) and no `XCTSkip`; case-safe audio ids with a coverage test; captions wired and the Music control removed; iCloud entitlement; destructive actions re-arm the save on failure; local-day counting; one old error no longer demotes a secure skill; single-choice items are not evidence; `.inactive` only flushes.
 - Privacy and security: F-1, F-2, F-4 to F-11, F-13 (see [PRIVACY_AND_CHILD_SAFETY.md](PRIVACY_AND_CHILD_SAFETY.md) section 8).
 - Accessibility: B-1, M-1 to M-5, m-1, m-2, m-4 to m-7, and parts of M-6, M-7, M-8, m-10 (see [ACCESSIBILITY.md](ACCESSIBILITY.md)).
+
+## Update after final review (CI run #32)
+Closed: blend-task unprompted focus moves (suppressed in Gentle mode / VoiceOver), Home Sound/Gentle toggle traits, played state on blend tiles, VoiceOver no longer reads raw phonemes as words. Still open: low-contrast tried/used states, Increase Contrast, possible doubled focus effect, hardware-only checks (see TEST_RESULTS.md).
