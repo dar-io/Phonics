@@ -20,8 +20,12 @@ jobs:
             only: "-only-testing:StorySoundsCoreTests"
           - name: ui-child
             only: "-only-testing:StorySoundsUITests/LaunchTests -only-testing:StorySoundsUITests/ChildFlowTests -only-testing:StorySoundsUITests/AccessibilityTests"
+          - name: ui-focus
+            only: "-only-testing:StorySoundsUITests/FocusNavigationTests"
           - name: ui-parent
-            only: "-only-testing:StorySoundsUITests/FocusNavigationTests -only-testing:StorySoundsUITests/ParentAreaTests -only-testing:StorySoundsUITests/PersistenceTests"
+            only: "-only-testing:StorySoundsUITests/ParentAreaTests"
+          - name: ui-persist
+            only: "-only-testing:StorySoundsUITests/PersistenceTests"
     defaults: { run: { working-directory: tvos } }
     steps:
       - uses: actions/checkout@v4
