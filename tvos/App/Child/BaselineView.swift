@@ -146,7 +146,7 @@ struct BaselineView: View {
     private func handle(_ result: ActivityResult) {
         results.append(BaselineItemResult(activity: result.activity, answer: result.answer))
         guard let plan = plan else { finishBaseline(); return }
-        if Baseline.shouldStop(results: results) || position + 1 >= plan.activities.count || position + 1 >= 10 {
+        if Baseline.shouldStop(results: results) || position + 1 >= plan.activities.count {
             finishBaseline()
         } else {
             position += 1

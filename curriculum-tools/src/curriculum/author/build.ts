@@ -4,12 +4,11 @@
  * Run:  npx tsx src/curriculum/author/build.ts
  * (Not imported by the app. The JSON files are the shipped, reviewable artefacts.)
  */
-// @ts-ignore - no @types/node in this project; only used by this authoring script
-import { writeFileSync } from 'node:fs';
-// @ts-ignore
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { AudioManifestSchema, CURRICULUM_SCHEMA_VERSION, CurriculumSchema } from '../../domain/schema';
 import type { AudioEntry, Curriculum, GraphemeUnit, Sentence, Story, TrickyWord, Word } from '../../domain/schema';
+import { mergeRecordedAudio } from '../audioMerge';
 import { joinGraphemes, unlockOrder, firstTaughtOrder } from '../lookup';
 import type { WordRequirements } from '../lookup';
 import { UNITS, termFor } from './units';
@@ -303,13 +302,24 @@ for (const [id, label] of SFX) {
   add({ id, kind: 'sfx', label, file: null, status: 'placeholder', note: PLACEHOLDER_NOTE });
 }
 
+// Regenerating must NEVER wipe a recording (see mergeRecordedAudio).
+{
+  const manifestPath = fileURLToPath(new URL('../../../public/audio/manifest.json', import.meta.url));
+  if (existsSync(manifestPath)) {
+    const previous = AudioManifestSchema.parse(JSON.parse(readFileSync(manifestPath, 'utf8')));
+    const merged = mergeRecordedAudio(entries, previous.entries);
+    entries.splice(0, entries.length, ...merged.entries);
+    if (merged.kept > 0) console.log(`kept ${merged.kept} recorded/verified audio entr${merged.kept === 1 ? 'y' : 'ies'} from the existing manifest`);
+  }
+}
+
 const manifest = AudioManifestSchema.parse({
   version: 1,
   statement:
-    'PLACEHOLDER MANIFEST. Every entry is a temporary development placeholder with no recording (file is null, status is "placeholder"). ' +
+    'PLACEHOLDER MANIFEST. Entries whose status is "placeholder" are temporary development placeholders with no recording (file is null). ' +
     'Ordinary text-to-speech is NOT authoritative for isolated phonemes: it adds an extra "uh" and cannot be trusted to produce pure sounds, so it must never be treated as the real audio. ' +
     'This manifest and the curriculum data are not Little Wandle-approved or endorsed; the sequence and guidance are inferred from general Letters and Sounds knowledge and school overview documents. ' +
-    'Replace entries by recording the sounds and editing this file only; set status to "recorded", then "verified" after an adult has checked the pronunciation.',
+    'Replace entries by recording the sounds and editing public/audio/manifest.json only (regenerating the curriculum keeps recorded and verified entries); set status to "recorded", then "verified" after an adult has checked the pronunciation.',
   entries,
 });
 
