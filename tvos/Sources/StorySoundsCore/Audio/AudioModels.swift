@@ -10,6 +10,12 @@ public extension AudioKind {
     var channel: AudioChannel { self == .sfx ? .effects : .narration }
 }
 
+/// Case-safe audio id derivation. Manifest ids are lower-case, but curriculum text is not ("I", "Mr", names such as "Zak").
+/// Always derive word ids through here, never with `"w-" + text`.
+public enum AudioIds {
+    public static func word(_ text: String) -> String { return "w-" + text.lowercased() }
+}
+
 /// POLICY (enforced in code, covered by tests): isolated phoneme audio is NEVER synthesised.
 /// Text-to-speech adds a schwa ("suh" for /s/) and cannot be trusted for pure sounds, so only recordings
 /// (bundled or a parent's own) may be played for phonemes; otherwise the caller shows a caption only.

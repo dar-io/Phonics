@@ -9,7 +9,7 @@ struct ParentSettingsView: View {
     @EnvironmentObject var env: AppEnvironment
     @State private var page = 0
 
-    private static let titles = ["Session and comfort", "Volume", "When a sound counts as secure"]
+    private static let titles = ["Session and comfort", "Volume", "When a sound counts as secure (1 of 2)", "When a sound counts as secure (2 of 2)"]
     private static let sessionChoices = [5, 7, 10]
     private static let defaults = MasterySettings()
 
@@ -19,7 +19,8 @@ struct ParentSettingsView: View {
             switch page {
             case 0: sessionAndComfort
             case 1: volume
-            default: mastery
+            case 2: masteryScore
+            default: masterySpread
             }
         }
     }
@@ -40,7 +41,7 @@ struct ParentSettingsView: View {
                        onDec: { stepSession(-1) }, onInc: { stepSession(1) })
             ParentToggleRow(title: "Gentle mode", hint: "Calmer: less movement and softer sound effects.",
                       isOn: s.gentleMode, id: "parent.settings.gentle") { change { $0.gentleMode.toggle() } }
-            ParentToggleRow(title: "Captions", hint: "Recommended: shows the spoken words on screen. It helps while audio is still placeholders, and for anyone who finds listening hard.",
+            ParentToggleRow(title: "Captions", hint: "Shows a written caption of each letter sound when it plays. Instructions are always shown on screen.",
                       isOn: s.showCaptions, id: "parent.settings.captions") { change { $0.showCaptions.toggle() } }
         }
     }
@@ -63,14 +64,11 @@ struct ParentSettingsView: View {
                        idPrefix: "parent.settings.volume.narration",
                        onDec: { change { $0.narrationVolume = stepped($0.narrationVolume, -0.1) } },
                        onInc: { change { $0.narrationVolume = stepped($0.narrationVolume, 0.1) } })
-            ParentStepperRow(title: "Music", hint: "Background music", valueText: percent(s.musicVolume),
-                       idPrefix: "parent.settings.volume.music",
-                       onDec: { change { $0.musicVolume = stepped($0.musicVolume, -0.1) } },
-                       onInc: { change { $0.musicVolume = stepped($0.musicVolume, 0.1) } })
             ParentStepperRow(title: "Effects", hint: "Taps, chimes and cheers", valueText: percent(s.effectsVolume),
                        idPrefix: "parent.settings.volume.effects",
                        onDec: { change { $0.effectsVolume = stepped($0.effectsVolume, -0.1) } },
                        onInc: { change { $0.effectsVolume = stepped($0.effectsVolume, 0.1) } })
+            // Music is deliberately not offered: the app does not play background music yet.
             Text("These work together with the TV's own volume.").font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
         }
     }
@@ -78,18 +76,25 @@ struct ParentSettingsView: View {
     private func stepped(_ v: Double, _ d: Double) -> Double { min(1, max(0, ((v + d) * 10).rounded() / 10)) }
     private func percent(_ v: Double) -> String { v <= 0.001 ? "Off" : "\(Int((v * 100).rounded()))%" }
 
-    // MARK: Page 2
+    // MARK: Pages 2 and 3 (mastery thresholds, split so each page fits on screen without scrolling)
 
-    private var mastery: some View {
+    private var masteryScore: some View {
         let m = env.settings.mastery
         let d = Self.defaults
-        return VStack(alignment: .leading, spacing: 14) {
+        return VStack(alignment: .leading, spacing: 22) {
             ParentStepperRow(title: "Score needed", hint: "Default \(Int((d.secureScore * 100).rounded()))%. Higher is stricter.",
                        valueText: "\(Int((m.secureScore * 100).rounded()))%", idPrefix: "parent.settings.mastery.score",
                        onDec: { stepScore(-0.05) }, onInc: { stepScore(0.05) })
             ParentStepperRow(title: "Tries needed", hint: "Default \(d.minAttempts). Answers before a sound can be secure.",
                        valueText: "\(m.minAttempts)", idPrefix: "parent.settings.mastery.attempts",
                        onDec: { stepInt(\.minAttempts, -1, 4, 12) }, onInc: { stepInt(\.minAttempts, 1, 4, 12) })
+        }
+    }
+
+    private var masterySpread: some View {
+        let m = env.settings.mastery
+        let d = Self.defaults
+        return VStack(alignment: .leading, spacing: 22) {
             ParentStepperRow(title: "Sessions needed", hint: "Default \(d.minSessions). Different play sessions.",
                        valueText: "\(m.minSessions)", idPrefix: "parent.settings.mastery.sessions",
                        onDec: { stepInt(\.minSessions, -1, 1, 4) }, onInc: { stepInt(\.minSessions, 1, 1, 4) })
@@ -102,7 +107,7 @@ struct ParentSettingsView: View {
                     $0.mastery.minSessions = d.minSessions; $0.mastery.minDays = d.minDays
                 }
             } label: {
-                Label("Reset to defaults", systemImage: "arrow.counterclockwise").font(Theme.bodyFont).frame(maxWidth: .infinity)
+                Label("Reset all four to defaults", systemImage: "arrow.counterclockwise").font(Theme.bodyFont).frame(maxWidth: .infinity)
             }
             .buttonStyle(ParentRowStyle())
             .a11yID("parent.settings.mastery.reset")

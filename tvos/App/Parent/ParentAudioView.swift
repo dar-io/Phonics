@@ -23,7 +23,7 @@ struct ParentAudioView: View {
     private var status: some View {
         VStack(alignment: .leading, spacing: 22) {
             Label("Development placeholders — not approved recordings", systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 42, weight: .bold, design: .rounded))
+                .font(Theme.subheadingFont.bold())
                 .padding(.vertical, 12).padding(.horizontal, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 20).fill(Theme.surfaceRaised))

@@ -194,7 +194,7 @@ struct BlendActivityView: View {
     private func lightUp(_ i: Int) {
         guard coord.contentEnabled else { return }
         if let audioId = env.index.audioId(forGrapheme: graphemes[i], atOrder: env.index.maxOrder) {
-            env.playAudio(audioId)
+            env.playAudioInterrupting(audioId)
         }
         lit.insert(i)
         if lit.count >= graphemes.count {
@@ -328,7 +328,7 @@ struct TileActivityView: View {
     private func tap(_ i: Int) {
         guard canTap(i) else { return }
         if let audioId = env.index.audioId(forGrapheme: tiles[i], atOrder: env.index.maxOrder) {
-            env.playAudio(audioId)
+            env.playAudioInterrupting(audioId)
         }
         placed.append(i)
         if placed.count == graphemes.count {
@@ -439,6 +439,12 @@ struct SentenceActivityView: View {
         return t.font(Font.system(size: 72, weight: .bold, design: .rounded))
     }
 
+    /// Reads "blank" only while the blank is open; once answered the real word is read.
+    private var sentenceAccessibilityLabel: String {
+        let filled: String = (coord.isComplete ? answer : nil) ?? "blank"
+        return tokens.enumerated().map { $0.offset == blankIndex ? filled : $0.element }.joined(separator: " ")
+    }
+
     var body: some View {
         VStack(spacing: 32) {
             HStack(spacing: 28) {
@@ -446,7 +452,7 @@ struct SentenceActivityView: View {
                 sentenceText()
                     .lineSpacing(12)
                     .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(tokens.enumerated().map { $0.offset == blankIndex ? "blank" : $0.element }.joined(separator: " "))
+                    .accessibilityLabel(sentenceAccessibilityLabel)
                     .a11yID("\(coord.idPrefix).sentence")
             }
             ChoiceGridView(coord: coord, choices: choices, style: .text, focus: focus)
@@ -501,7 +507,7 @@ struct StoryActivityView: View {
                     pageText(p)
                         .lineSpacing(16)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(p.tokens.map { $0.text }.joined(separator: " "))
+                        .accessibilityLabel(p.tokens.map { $0.tricky ? "\($0.text), tricky word" : $0.text }.joined(separator: " "))
                         .a11yID("\(coord.idPrefix).pageText")
                 }
                 .padding(32)
@@ -544,6 +550,10 @@ struct StoryActivityView: View {
         guard page > 0 else { return }
         page -= 1
         env.playAudio("sfx-page-turn")
+        if page == 0 {
+            // "Back a page" is disabled on the first page: hand focus to "Next page" so it is never lost.
+            afterTick { focus.wrappedValue = .pageNext }
+        }
     }
 
     private func next() {
@@ -610,7 +620,7 @@ struct FluencyActivityView: View {
     }
 
     private func tapWord(_ i: Int, _ w: String) {
-        env.playAudio("w-" + w.lowercased())
+        env.playAudioInterrupting("w-" + w.lowercased())
         heard.insert(i)
     }
 }

@@ -47,13 +47,26 @@ final class AdultChallengeTests: XCTestCase {
         for seed in 0..<500 {
             let c = AdultChallengeFactory.make(seed: UInt64(seed))
             kinds.insert(c.kind)
-            XCTAssertEqual(c.options.count, 4, "seed \(seed)")
-            XCTAssertEqual(Set(c.options).count, 4, "options must be distinct, seed \(seed)")
-            XCTAssertTrue((0..<4).contains(c.correctIndex))
+            XCTAssertEqual(c.options.count, 6, "seed \(seed)")
+            XCTAssertEqual(Set(c.options).count, 6, "options must be distinct, seed \(seed)")
+            XCTAssertTrue((0..<6).contains(c.correctIndex))
             XCTAssertTrue(c.isCorrect(optionIndex: c.correctIndex))
             XCTAssertTrue(c.options.allSatisfy { Int($0).map { $0 > 0 } ?? false })
         }
         XCTAssertEqual(kinds, [.arithmetic, .numberWords])
+    }
+
+    func testHardVariantIsThreeStepWithSixDistinctOptions() {
+        for seed in 0..<300 {
+            let c = AdultChallengeFactory.make(seed: UInt64(seed), hard: true)
+            XCTAssertEqual(c.kind, .threeStep)
+            XCTAssertEqual(c.options.count, 6)
+            XCTAssertEqual(Set(c.options).count, 6)
+            // "Multiply A by B, take away C, then add D."
+            let nums = c.prompt.components(separatedBy: CharacterSet.decimalDigits.inverted).compactMap { Int($0) }
+            XCTAssertEqual(nums.count, 4)
+            XCTAssertEqual(c.options[c.correctIndex], String(nums[0] * nums[1] - nums[2] + nums[3]))
+        }
     }
 
     func testCorrectAnswerMatchesPrompt() {
@@ -86,22 +99,22 @@ final class AdultChallengeTests: XCTestCase {
 final class GateLockoutTests: XCTestCase {
     private let t0 = Date(timeIntervalSince1970: 5_000)
 
-    func testLocksAfterThreeFailuresWithBackoff() {
+    func testLocksAfterTwoFailuresWithBackoff() {
         var l = GateLockout()
-        XCTAssertNil(l.recordFailure(at: t0)); XCTAssertNil(l.recordFailure(at: t0))
+        XCTAssertNil(l.recordFailure(at: t0))
         XCTAssertEqual(l.recordFailure(at: t0), 30)
         XCTAssertTrue(l.isLocked(at: t0.addingTimeInterval(29)))
         XCTAssertEqual(l.remaining(at: t0.addingTimeInterval(10)), 20, accuracy: 0.001)
         XCTAssertFalse(l.isLocked(at: t0.addingTimeInterval(31)))
         let t1 = t0.addingTimeInterval(31)
-        l.recordFailure(at: t1); l.recordFailure(at: t1)
+        l.recordFailure(at: t1)
         XCTAssertEqual(l.recordFailure(at: t1), 60)
     }
 
     func testBackoffIsCapped() {
         var l = GateLockout(); var t = t0; var last: TimeInterval = 0
         for _ in 0..<12 {
-            l.recordFailure(at: t); l.recordFailure(at: t)
+            l.recordFailure(at: t)
             last = l.recordFailure(at: t) ?? 0
             t = t.addingTimeInterval(last + 1)
         }
@@ -110,7 +123,7 @@ final class GateLockoutTests: XCTestCase {
 
     func testSuccessResetsAndCodableRoundTrip() throws {
         var l = GateLockout()
-        l.recordFailure(at: t0); l.recordFailure(at: t0); l.recordFailure(at: t0)
+        l.recordFailure(at: t0); l.recordFailure(at: t0)
         let data = try JSONEncoder().encode(l)
         let back = try JSONDecoder().decode(GateLockout.self, from: data)
         XCTAssertEqual(back, l)
@@ -118,12 +131,45 @@ final class GateLockoutTests: XCTestCase {
         XCTAssertFalse(l.isLocked(at: t0)); XCTAssertEqual(l.failures, 0)
     }
 
+    func testOldPersistedFormatWithoutLastObservedStillDecodes() throws {
+        let json = #"{"failures":1,"lockRounds":0}"#.data(using: .utf8)!
+        let l = try JSONDecoder().decode(GateLockout.self, from: json)
+        XCTAssertEqual(l.failures, 1)
+        XCTAssertNil(l.lastObservedAt)
+    }
+
     func testFailureWhileLockedDoesNotExtend() {
         var l = GateLockout()
-        for _ in 0..<3 { l.recordFailure(at: t0) }
+        for _ in 0..<2 { l.recordFailure(at: t0) }
         let until = l.lockedUntil
         _ = l.recordFailure(at: t0.addingTimeInterval(5))
         XCTAssertEqual(l.lockedUntil, until)
+    }
+
+    func testBackwardClockJumpKeepsRemainingLock() {
+        var l = GateLockout()
+        l.recordFailure(at: t0); l.recordFailure(at: t0)          // locked until t0+30
+        l.observe(at: t0.addingTimeInterval(10))                  // 20 s left
+        let wound = t0.addingTimeInterval(-3_600)                 // clock set back one hour
+        l.observe(at: wound)
+        XCTAssertTrue(l.isLocked(at: wound.addingTimeInterval(19)))
+        XCTAssertEqual(l.remaining(at: wound), 20, accuracy: 0.001)
+        XCTAssertFalse(l.isLocked(at: wound.addingTimeInterval(21)))
+    }
+
+    func testSmallBackwardStepIsTolerated() {
+        var l = GateLockout()
+        l.recordFailure(at: t0); l.recordFailure(at: t0)
+        l.observe(at: t0.addingTimeInterval(10))
+        l.observe(at: t0.addingTimeInterval(9))
+        XCTAssertEqual(l.lockedUntil, t0.addingTimeInterval(30))
+    }
+
+    func testImplausiblyFarFutureLockIsClamped() throws {
+        let json = #"{"failures":0,"lockRounds":1,"lockedUntil":99999999999}"#.data(using: .utf8)!
+        var l = try JSONDecoder().decode(GateLockout.self, from: json)
+        l.observe(at: t0)
+        XCTAssertLessThanOrEqual(l.remaining(at: t0), GateLockout.maxSeconds)
     }
 }
 
@@ -137,7 +183,7 @@ final class ParentGateSessionTests: XCTestCase {
         return nil
     }
 
-    func testHappyPath() throws {
+    func testHappyPathNeedsTwoCorrectAnswersInARow() throws {
         var s = ParentGateSession(requiredHold: 3)
         s.holdBegan(at: t0)
         s.holdTick(at: t0.addingTimeInterval(1), challengeSeed: 1)
@@ -145,9 +191,26 @@ final class ParentGateSessionTests: XCTestCase {
         s.holdTick(at: t0.addingTimeInterval(3), challengeSeed: 1)
         guard case let .challenge(c) = s.stage else { return XCTFail("expected challenge") }
         s.answer(optionIndex: c.correctIndex, at: t0, nextSeed: 2)
+        XCTAssertEqual(s.correctStreak, 1)
+        guard case let .challenge(c2) = s.stage else { return XCTFail("expected a second question") }
+        XCTAssertNotEqual(c2.seed, c.seed)
+        s.answer(optionIndex: c2.correctIndex, at: t0, nextSeed: 3)
         XCTAssertEqual(s.stage, .unlocked)
         s.relock()
         XCTAssertEqual(s.stage, .hold)
+        XCTAssertEqual(s.correctStreak, 0)
+    }
+
+    func testWrongAnswerBetweenCorrectOnesResetsStreak() throws {
+        var s = ParentGateSession(requiredHold: 1)
+        guard let c = reachChallenge(&s, at: t0) else { return XCTFail() }
+        s.answer(optionIndex: c.correctIndex, at: t0, nextSeed: 2)
+        guard case let .challenge(c2) = s.stage else { return XCTFail() }
+        s.answer(optionIndex: (c2.correctIndex + 1) % 6, at: t0, nextSeed: 3)
+        XCTAssertEqual(s.correctStreak, 0)
+        guard case let .challenge(c3) = s.stage else { return XCTFail("one wrong answer must not lock yet") }
+        s.answer(optionIndex: c3.correctIndex, at: t0, nextSeed: 4)
+        XCTAssertNotEqual(s.stage, .unlocked, "streak was reset, one correct answer is not enough")
     }
 
     func testReleasingEarlyCancels() {
@@ -157,18 +220,18 @@ final class ParentGateSessionTests: XCTestCase {
         XCTAssertEqual(s.stage, .hold)
     }
 
-    private func failThrice(_ s: inout ParentGateSession, at t: Date) -> Bool {
-        for i in 0..<3 {
+    private func failTwice(_ s: inout ParentGateSession, at t: Date) -> Bool {
+        for i in 0..<2 {
             guard case let .challenge(cur) = s.stage else { return false }
-            s.answer(optionIndex: (cur.correctIndex + 1) % 4, at: t, nextSeed: UInt64(100 + i))
+            s.answer(optionIndex: (cur.correctIndex + 1) % 6, at: t, nextSeed: UInt64(100 + i))
         }
         return true
     }
 
-    func testThreeWrongAnswersLockOutThenRecovers() throws {
+    func testTwoWrongAnswersLockOutThenRecovers() throws {
         var s = ParentGateSession(requiredHold: 1)
         XCTAssertNotNil(reachChallenge(&s, at: t0))
-        XCTAssertTrue(failThrice(&s, at: t0))
+        XCTAssertTrue(failTwice(&s, at: t0))
         guard case let .lockedOut(until) = s.stage else { return XCTFail("expected lockout, got \(s.stage)") }
         XCTAssertEqual(until, t0.addingTimeInterval(30))
         s.holdBegan(at: t0.addingTimeInterval(5))
@@ -181,10 +244,46 @@ final class ParentGateSessionTests: XCTestCase {
     func testLockoutPersistsAcrossSessionsViaCodableState() throws {
         var s = ParentGateSession(requiredHold: 1)
         XCTAssertNotNil(reachChallenge(&s, at: t0))
-        XCTAssertTrue(failThrice(&s, at: t0))
-        var fresh = ParentGateSession(requiredHold: 1, lockout: s.lockout)
+        XCTAssertTrue(failTwice(&s, at: t0))
+        let data = try JSONEncoder().encode(s.lockout)
+        let restored = try JSONDecoder().decode(GateLockout.self, from: data)
+        var fresh = ParentGateSession(requiredHold: 1, lockout: restored)
         fresh.refresh(at: t0.addingTimeInterval(1))
         if case .lockedOut = fresh.stage {} else { XCTFail("lockout should survive") }
+    }
+
+    func testLockoutSurvivesClockBeingWoundBack() throws {
+        var s = ParentGateSession(requiredHold: 1)
+        XCTAssertNotNil(reachChallenge(&s, at: t0))
+        XCTAssertTrue(failTwice(&s, at: t0))
+        s.refresh(at: t0.addingTimeInterval(5))
+        s.refresh(at: t0.addingTimeInterval(-86_400))
+        if case .lockedOut = s.stage {} else { XCTFail("a backwards clock jump must keep the lock") }
+        s.refresh(at: t0.addingTimeInterval(-86_400 + 26))
+        XCTAssertEqual(s.stage, .hold, "after the remaining 25 s the lock ends")
+    }
+
+    func testNoHoldRouteGivesHardQuestionsAndStillNeedsTwoCorrect() throws {
+        var s = ParentGateSession(requiredHold: 3)
+        s.startWithoutHold(at: t0, challengeSeed: 11)
+        guard case let .challenge(c) = s.stage else { return XCTFail("expected challenge") }
+        XCTAssertEqual(c.kind, .threeStep)
+        XCTAssertTrue(s.usesHardQuestions)
+        s.answer(optionIndex: c.correctIndex, at: t0, nextSeed: 12)
+        guard case let .challenge(c2) = s.stage else { return XCTFail("expected second question") }
+        XCTAssertEqual(c2.kind, .threeStep)
+        s.answer(optionIndex: c2.correctIndex, at: t0, nextSeed: 13)
+        XCTAssertEqual(s.stage, .unlocked)
+        s.relock()
+        XCTAssertFalse(s.usesHardQuestions)
+    }
+
+    func testNoHoldRouteIsIgnoredWhileLocked() throws {
+        var s = ParentGateSession(requiredHold: 1)
+        XCTAssertNotNil(reachChallenge(&s, at: t0))
+        XCTAssertTrue(failTwice(&s, at: t0))
+        s.startWithoutHold(at: t0.addingTimeInterval(1), challengeSeed: 9)
+        if case .lockedOut = s.stage {} else { XCTFail("must stay locked") }
     }
 }
 

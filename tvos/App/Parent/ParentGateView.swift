@@ -1,8 +1,10 @@
 import SwiftUI
 import StorySoundsCore
 
-/// Child-resistant entry to the grown-ups' area: (1) press-and-hold, (2) a 4-answer adult question,
-/// with a calm lockout after repeated wrong answers. Menu/Back leaves to Home.
+/// Child-resistant entry to the grown-ups' area: (1) press-and-hold, (2) TWO adult questions in a row, each with six
+/// answers (a first correct answer shows a fresh question with a calm "One more" notice), with a calm lockout after
+/// two wrong answers. "I can't hold the button" skips the hold but uses harder 3-step questions (no keyboard).
+/// Menu/Back leaves to Home.
 ///
 /// HOLD IMPLEMENTATION NOTE: a tvOS `Button` has no press-and-hold gesture, so the hold control is a plain focusable
 /// view using `.onLongPressGesture(minimumDuration:maximumDistance:perform:onPressingChanged:)` (SwiftUI, tvOS 14+),
@@ -17,15 +19,22 @@ struct ParentGateView: View {
     let onUnlocked: () -> Void
     let onExit: () -> Void
 
-    private enum GateFocus: Hashable { case hold, back, answer(Int) }
+    private enum GateFocus: Hashable { case hold, noHold, back, answer(Int) }
     private static let lockoutKey = "storysounds.parentgate.lockout"
     private static let holdSeconds: TimeInterval = 3
-    /// UI tests only (`-uitest-parent-gate-pass`): skips the hold step; the adult question is still required.
+    /// UI tests only (`-uitest-parent-gate-pass`): skips the hold step; the adult questions are still required.
+    /// Compiled out of release builds so the shipping binary has no way to shorten the gate.
+    #if DEBUG
     private static let skipHoldForTests = CommandLine.arguments.contains("-uitest-parent-gate-pass")
+    #else
+    private static let skipHoldForTests = false
+    #endif
+    private static let questionsNeeded = ParentGateSession.correctNeeded
 
     @State private var session: ParentGateSession
     @State private var now = Date()
     @State private var notice: String?
+    @State private var lastSavedSlot = 0
     @FocusState private var focus: GateFocus?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let ticker = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
@@ -40,7 +49,7 @@ struct ParentGateView: View {
     // MARK: Body
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 24) {
             Text("Grown-ups only").font(Theme.titleFont).accessibilityAddTraits(.isHeader)
             stageContent
             Button(action: onExit) {
@@ -58,11 +67,13 @@ struct ParentGateView: View {
         .onReceive(ticker) { tick($0) }
         .onAppear {
             session.refresh(at: Date())
+            ParentGateView.saveLockout(session.lockout)
             focus = defaultTarget
             if ParentGateView.skipHoldForTests { skipHoldForAssistiveTech() }
         }
         .onChange(of: stageKey) { _, _ in
             focus = defaultTarget
+            if case .hold = session.stage { notice = nil }
             if case .unlocked = session.stage {
                 session.relock()
                 onUnlocked()
@@ -116,12 +127,12 @@ struct ParentGateView: View {
                     .stroke(Theme.accent, style: StrokeStyle(lineWidth: 24, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                 VStack(spacing: 6) {
-                    Image(systemName: "lock.fill").font(.system(size: 64))
+                    Image(systemName: "lock.fill").font(Theme.iconMediumFont)
                     Text(session.hold.isHolding ? "Keep holding" : "Hold").font(Theme.bodyFont).bold()
                 }
             }
-            .frame(width: 300, height: 300)
-            .padding(24)
+            .frame(width: 240, height: 240)
+            .padding(16)
             .background(Circle().fill(Theme.surface))
             .overlay(Circle().stroke(Theme.focusRing, lineWidth: isFocused ? 8 : 0))
             .scaleEffect(isFocused && !reduceMotion ? 1.06 : 1.0)
@@ -152,7 +163,22 @@ struct ParentGateView: View {
             if let notice = notice {
                 Text(notice).font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
             }
+            // Non-hold route for people who cannot hold Select. Harder questions instead of the hold; no keyboard.
+            Button { startWithoutHold() } label: {
+                Label("I can't hold the button", systemImage: "hand.raised.slash").font(Theme.bodyFont)
+            }
+            .buttonStyle(FocusCardStyle())
+            .focused($focus, equals: .noHold)
+            .a11yID("parentgate.nohold")
+            .accessibilityLabel("I can't hold the button")
+            .accessibilityHint("Skips the hold. You will be asked two harder questions instead.")
         }
+    }
+
+    private func startWithoutHold() {
+        session.startWithoutHold(at: Date(), challengeSeed: ParentGateView.newSeed())
+        notice = nil
+        ParentGateView.saveLockout(session.lockout)
     }
 
     private func completeHold() {
@@ -169,8 +195,11 @@ struct ParentGateView: View {
     // MARK: Challenge
 
     private func challengeView(_ c: AdultChallenge) -> some View {
-        VStack(spacing: 28) {
-            Text("One quick question to continue").font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
+        let step = min(Self.questionsNeeded, session.correctStreak + 1)
+        return VStack(spacing: 20) {
+            Text("Question \(step) of \(Self.questionsNeeded). Grown-ups only.")
+                .font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
+                .a11yID("parentgate.step")
             Text(c.prompt).font(Theme.headingFont).multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityAddTraits(.isHeader)
@@ -178,7 +207,7 @@ struct ParentGateView: View {
             if let notice = notice {
                 Text(notice).font(Theme.captionFont).foregroundStyle(Theme.textSecondary).a11yID("parentgate.notice")
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 32), GridItem(.flexible(), spacing: 32)], spacing: 32) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 28), count: 3), spacing: 28) {
                 ForEach(0..<c.options.count, id: \.self) { i in
                     Button { answer(i) } label: {
                         Text(c.options[i]).font(Theme.headingFont).frame(maxWidth: .infinity)
@@ -197,11 +226,17 @@ struct ParentGateView: View {
     private func answer(_ i: Int) {
         let t = Date()
         now = t
+        let before = session.correctStreak
         session.answer(optionIndex: i, at: t, nextSeed: ParentGateView.newSeed())
         ParentGateView.saveLockout(session.lockout)
         switch session.stage {
-        case .challenge: notice = "Not quite. Here is another question."
-        default: notice = nil
+        case .challenge:
+            notice = session.correctStreak > before
+                ? "Well done. One more."
+                : "Not quite. Here is another question."
+            if let n = notice { AccessibilityNotification.Announcement(n).post() }
+        default:
+            notice = nil
         }
     }
 
@@ -211,7 +246,7 @@ struct ParentGateView: View {
         let secs = max(1, Int(ceil(until.timeIntervalSince(now))))
         let text = secs >= 60 ? "\(secs / 60) min \(secs % 60) s" : "\(secs) seconds"
         return VStack(spacing: 20) {
-            Image(systemName: "clock").font(.system(size: 90))
+            Image(systemName: "clock").font(Theme.iconLargeFont)
             Text("Let's take a short break.").font(Theme.headingFont)
             Text("Please try again in \(text).").font(Theme.headingFont).monospacedDigit()
             Text("Nothing is wrong. The grown-ups' area just waits for a moment after a few wrong answers.")
@@ -234,6 +269,10 @@ struct ParentGateView: View {
         case .lockedOut:
             now = date
             session.refresh(at: date)
+            // Keep the "last seen" clock reading fresh on disk (every ~5 s) so a clock wound back while the app is
+            // closed is still detected on the next launch.
+            let slot = Int(date.timeIntervalSince1970 / 5)
+            if slot != lastSavedSlot { lastSavedSlot = slot; ParentGateView.saveLockout(session.lockout) }
         default:
             break
         }

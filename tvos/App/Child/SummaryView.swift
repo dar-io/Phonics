@@ -55,7 +55,10 @@ struct SummaryView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($doneFocused, true)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { doneFocused = true } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            doneFocused = true
+        }
         .onExitCommand { env.route = .home }
     }
 }

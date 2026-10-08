@@ -40,7 +40,10 @@ struct OnboardingView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($focus, 0)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = 0 } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = 0
+        }
     }
 
     private func choose(_ name: String) {

@@ -14,7 +14,8 @@ final class EnvironmentHost: ObservableObject {
 
     func retry() {
         // A retry must not wipe data again, so test-only reset flags are dropped.
-        let cleaned = arguments.filter { $0 != "-uitest-reset" }
+        // The forced-error test flag is dropped too, so Retry can actually succeed in UI tests.
+        let cleaned = arguments.filter { $0 != "-uitest-reset" && $0 != "-uitest-force-load-error" }
         env = AppEnvironment.make(arguments: cleaned)
     }
 }
@@ -26,15 +27,28 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if host.env.loadFailure != nil {
-                LoadErrorView(onRetry: { host.retry() })
+            if let message = host.env.loadFailure {
+                // Self-contained: `StoryButton` reads `AppEnvironment` from the environment, and this branch sits
+                // outside `RouterView`, so the object must be supplied here or the screen would crash on appear.
+                LoadErrorView(message: message, onRetry: { host.retry() })
+                    .environmentObject(host.env)
             } else {
                 RouterView().environmentObject(host.env)
             }
         }
         .preferredColorScheme(.dark)
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { host.env.sceneLeftForeground() }
+            switch phase {
+            case .active:
+                break
+            case .inactive:
+                // Siri, system alerts and HDMI-CEC make the scene inactive without leaving: only save.
+                host.env.flush()
+            case .background:
+                host.env.sceneLeftForeground()
+            @unknown default:
+                host.env.sceneLeftForeground()
+            }
         }
     }
 }
@@ -72,13 +86,14 @@ struct RouterView: View {
 /// Friendly, non-technical screen shown if the bundled lessons cannot be opened. Never crashes.
 @MainActor
 struct LoadErrorView: View {
+    let message: String
     let onRetry: () -> Void
     @FocusState private var retryFocused: Bool
 
     var body: some View {
         VStack(spacing: 40) {
             Spacer()
-            WrenSays(text: "Oh dear, I can't find our stories right now. Let's try again.", mood: .think, wrenSize: 190)
+            WrenSays(text: message, mood: .think, wrenSize: 190)
                 .a11yID("loaderror.message")
             StoryButton(prominent: true, action: onRetry) {
                 Label("Try again", systemImage: "arrow.clockwise").font(Theme.headingFont)
@@ -94,6 +109,9 @@ struct LoadErrorView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($retryFocused, true)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { retryFocused = true } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            retryFocused = true
+        }
     }
 }

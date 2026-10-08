@@ -73,7 +73,10 @@ struct BaselineView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($focus, IntroFocus.start)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .start } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = .start
+        }
         .onExitCommand { env.route = .home }
     }
 
@@ -118,7 +121,10 @@ struct BaselineView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($focus, IntroFocus.finish)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .finish } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = .finish
+        }
         .onExitCommand { env.route = .home }
     }
 
@@ -149,7 +155,7 @@ struct BaselineView: View {
 
     /// Scores what was played (nothing played = start at the first sound), records the placement, and shows the outro.
     private func finishBaseline() {
-        env.cancelSequence()
+        env.stopNarration()
         let placement = Baseline.score(index: env.index, results: results, now: env.now)
         env.update { snap in
             snap = Progression.applyPlacement(placement, to: snap)

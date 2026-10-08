@@ -41,7 +41,7 @@ struct ParentProgressView: View {
         let next = env.explainUnits().filter { $0.status != .mastered }.prefix(3)
         return VStack(alignment: .leading, spacing: 24) {
             if let c = report.currentPosition {
-                Text("Now learning: \(c.label)").font(Theme.headingFont).lineLimit(1).minimumScaleFactor(0.7)
+                Text("Now learning: \(c.label)").font(Theme.headingFont).lineLimit(2)
             } else {
                 Text("No sounds started yet").font(Theme.headingFont)
             }
@@ -51,7 +51,7 @@ struct ParentProgressView: View {
                 ParentStatTile(value: report.dueForReview.count, label: "Due for review")
             }
             if !next.isEmpty {
-                Text("Coming up").font(.system(size: 42, weight: .semibold, design: .rounded)).foregroundStyle(Theme.accent)
+                Text("Coming up").font(Theme.subheadingFont).foregroundStyle(Theme.accent)
                 ForEach(Array(next), id: \.unitId) { e in
                     HStack(spacing: 16) {
                         Image(systemName: e.status.parentSymbol)
@@ -80,7 +80,7 @@ struct ParentProgressView: View {
                 Text("No sessions yet. Play one short session together and it will appear here.").font(Theme.bodyFont)
             }
             ForEach(Array(rows.prefix(5).enumerated()), id: \.offset) { _, s in
-                Text(sessionLine(s)).font(Theme.bodyFont).lineLimit(2).minimumScaleFactor(0.8)
+                Text(sessionLine(s)).font(Theme.bodyFont).lineLimit(2)
                     .padding(.vertical, 10).padding(.horizontal, 24)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 20).fill(Theme.surface))
@@ -109,10 +109,10 @@ struct ParentProgressView: View {
             ForEach(Array(rows.prefix(5).enumerated()), id: \.offset) { _, c in
                 VStack(alignment: .leading, spacing: 2) {
                     Text("'\(c.expected)' and '\(c.chosen)' are being mixed up (\(c.count) time\(c.count == 1 ? "" : "s"))")
-                        .font(Theme.bodyFont).bold().lineLimit(1).minimumScaleFactor(0.7)
+                        .font(Theme.bodyFont).bold().lineLimit(2)
                     if let g = guidance(expected: c.expected, chosen: c.chosen) {
                         Text("Tip: \(g)").font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
-                            .lineLimit(2).minimumScaleFactor(0.8)
+                            .lineLimit(2)
                     }
                 }
                 .accessibilityElement(children: .combine)

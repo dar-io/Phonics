@@ -14,6 +14,11 @@ struct ParentDataView: View {
     /// After a successful 'delete everything' the app returns to first-launch onboarding once the grown-up taps OK.
     @State private var returnToOnboarding = false
     @State private var refresh = 0   // bumps after backup actions so the status text re-reads the controller
+    /// The control that opened a confirmation, so Cancel / OK can put focus back on it.
+    @State private var opener: DataControl?
+    @FocusState private var dataFocus: DataControl?
+
+    private enum DataControl: Hashable { case reset, delete, restore, deleteCopy }
 
     private static let titles = ["Where your data lives", "Progress summary", "iCloud backup", "Reset or delete"]
 
@@ -21,11 +26,11 @@ struct ParentDataView: View {
         if let text = outcome {
             ParentOutcomeView(text: text) {
                 outcome = nil
-                if returnToOnboarding { returnToOnboarding = false; env.route = .onboarding }
+                if returnToOnboarding { returnToOnboarding = false; env.route = .onboarding } else { restoreFocus() }
             }
         } else if let action = pending {
             ParentConfirmView(action: action, nickname: env.snapshot.profile.nickname,
-                              onConfirm: { run(action) }, onCancel: { pending = nil })
+                              onConfirm: { run(action) }, onCancel: { pending = nil; restoreFocus() })
         } else {
             ParentPageScaffold(title: "Your data", pageTitle: Self.titles[page], idPrefix: "parent.data",
                                page: $page, pageCount: Self.titles.count, onBack: onClose) {
@@ -37,6 +42,17 @@ struct ParentDataView: View {
                 }
             }
         }
+    }
+
+    /// Puts focus back on the control that opened the confirmation (best effort; the page is rebuilt first).
+    private func restoreFocus() {
+        guard let target = opener else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { dataFocus = target }
+    }
+
+    private func ask(_ action: ParentDataAction, from control: DataControl) {
+        opener = control
+        pending = action
     }
 
     // MARK: Pages
@@ -65,26 +81,28 @@ struct ParentDataView: View {
     private var resetPage: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("Both ask you to confirm first. Nothing happens until you say yes.").font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
-            Button { pending = .resetProgress } label: {
+            Button { ask(.resetProgress, from: .reset) } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Reset progress", systemImage: "arrow.counterclockwise").font(Theme.bodyFont).bold()
                     Text("Start the sounds again. Keeps the profile and settings.").font(Theme.captionFont)
                 }
             }
             .buttonStyle(ParentRowStyle())
+            .focused($dataFocus, equals: .reset)
             .a11yID("parent.data.reset")
             .accessibilityLabel("Reset progress")
             .accessibilityHint("Asks for confirmation. Keeps the profile and settings.")
-            Button { pending = .deleteEverything } label: {
+            Button { ask(.deleteEverything, from: .delete) } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Delete everything", systemImage: "trash").font(Theme.bodyFont).bold()
-                    Text("Removes all data from this Apple TV and the iCloud copy.").font(Theme.captionFont)
+                    Text("Removes all data from this Apple TV and asks iCloud to delete the backup copy.").font(Theme.captionFont)
                 }
             }
             .buttonStyle(ParentRowStyle())
+            .focused($dataFocus, equals: .delete)
             .a11yID("parent.data.delete")
             .accessibilityLabel("Delete everything")
-            .accessibilityHint("Asks for confirmation. Removes all data and any iCloud copy.")
+            .accessibilityHint("Asks for confirmation. Removes all data from this Apple TV and asks iCloud to delete the backup copy.")
         }
     }
 
@@ -104,11 +122,14 @@ struct ParentDataView: View {
         let on = b.isOptedIn
         var status = "Off by default. Only learner progress is saved, with no names."
         if !b.isAvailable { status = "iCloud is not available on this Apple TV. Sign in to iCloud in Settings to use it." }
-        else if let d = b.lastBackupAt ?? b.latestBackup?.createdAt { status = "Last backup: \(ParentFormat.shortDate(d))." }
+        else if let d = b.lastBackupAt ?? b.latestBackup?.createdAt {
+            // Only shown when the copy was read back after writing (see ParentBackupAdapter).
+            status = "Last backup: \(ParentFormat.shortDate(d))." + (on ? "" : " Backup is off, but this copy is still in iCloud.")
+        }
         else if on { status = "On. No backup made yet." }
         return VStack(alignment: .leading, spacing: 16) {
             Text(status).font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
-            ParentToggleRow(title: "iCloud backup", hint: "Saves progress only (no names). Restore it on a new Apple TV.",
+            ParentToggleRow(title: "iCloud backup", hint: "Saves progress only (no names). Turning it off does not remove a copy already in iCloud.",
                       isOn: on, id: "parent.data.backup.toggle") {
                 attempt("Could not change the backup setting.") { try b.setOptedIn(!on) }
             }
@@ -118,19 +139,22 @@ struct ParentDataView: View {
             .buttonStyle(ParentRowStyle())
             .a11yID("parent.data.backup.now")
             .accessibilityLabel(on ? "Back up now" : "Back up now. Turn iCloud backup on first.")
-            Button { pending = .restoreBackup } label: {
+            Button { ask(.restoreBackup, from: .restore) } label: {
                 Label("Restore from iCloud", systemImage: "icloud.and.arrow.down").font(Theme.bodyFont)
             }
             .buttonStyle(ParentRowStyle())
+            .focused($dataFocus, equals: .restore)
             .a11yID("parent.data.backup.restore")
             .accessibilityLabel("Restore from iCloud")
             .accessibilityHint("Asks for confirmation first.")
-            Button { pending = .deleteBackupCopy } label: {
-                Label("Delete the iCloud copy", systemImage: "icloud.slash").font(Theme.bodyFont)
+            Button { ask(.deleteBackupCopy, from: .deleteCopy) } label: {
+                Label(on ? "Delete the iCloud copy" : "Also delete the iCloud copy", systemImage: "icloud.slash")
+                    .font(Theme.bodyFont)
             }
             .buttonStyle(ParentRowStyle())
+            .focused($dataFocus, equals: .deleteCopy)
             .a11yID("parent.data.backup.delete")
-            .accessibilityLabel("Delete the iCloud copy")
+            .accessibilityLabel(on ? "Delete the iCloud copy" : "Also delete the iCloud copy")
             .accessibilityHint("Asks for confirmation first.")
         }
     }
@@ -150,13 +174,17 @@ struct ParentDataView: View {
             env.resetProgress()
             outcome = "Progress has been reset. The profile and settings were kept."
         case .deleteEverything:
+            // Read before deleting: was iCloud reachable? Its removal is only queued by the system, never confirmed here.
+            let icloudReachable = env.backup.isAvailable
             do {
                 try env.deleteEverything()
                 ParentGateView.clearStoredLockout()
                 returnToOnboarding = true
-                outcome = "Everything has been deleted from this Apple TV and from iCloud."
+                outcome = icloudReachable
+                    ? "Everything has been deleted from this Apple TV. The iCloud copy was deleted too; iCloud may take a short while to finish removing it."
+                    : "Everything has been deleted from this Apple TV. iCloud could not be reached, so we cannot confirm the iCloud copy is gone. If you made a backup, delete it in iCloud settings."
             } catch {
-                outcome = "Something went wrong, so not everything may have been deleted. Please try again."
+                outcome = "Something went wrong, so some data may remain on this Apple TV or in iCloud. Please try again."
             }
         case .restoreBackup:
             guard let b = backup else { outcome = "iCloud backup is not available."; return }
@@ -168,7 +196,13 @@ struct ParentDataView: View {
         case .deleteBackupCopy:
             guard let b = backup else { outcome = "iCloud backup is not available."; return }
             attempt("Could not delete the iCloud copy.") { try b.deleteBackupCopy() }
-            if outcome == nil { outcome = "The iCloud copy has been deleted." }
+            if outcome == nil {
+                outcome = !b.isAvailable
+                    ? "iCloud is not available right now, so we cannot confirm the copy is gone. Try again when iCloud is available."
+                    : (b.latestBackup == nil
+                        ? "The iCloud copy was deleted. iCloud may take a short while to finish removing it."
+                        : "The copy is still showing in iCloud. Please try again.")
+            }
         }
     }
 

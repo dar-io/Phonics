@@ -9,18 +9,21 @@ struct ParentRowStyle: ButtonStyle {
     var prominent = false
     @Environment(\.isFocused) private var isFocused
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.calmMotion) private var calm
+    @ScaledMetric(relativeTo: .body) private var minHeight: CGFloat = 88
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let still = reduceMotion || calm
+        return configuration.label
             .padding(.horizontal, 30).padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
             .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
             .background(RoundedRectangle(cornerRadius: Theme.cornerRadius).fill(prominent ? Theme.accent : Theme.surfaceRaised))
             .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadius).stroke(Theme.focusRing, lineWidth: isFocused ? 8 : 0))
-            .scaleEffect(isFocused && !reduceMotion ? 1.03 : 1.0)
+            .scaleEffect(isFocused && !still ? 1.03 : 1.0)
             .shadow(color: .black.opacity(isFocused ? 0.5 : 0), radius: isFocused ? 20 : 0, y: isFocused ? 10 : 0)
             .opacity(configuration.isPressed ? 0.85 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isFocused)
+            .animation(still ? nil : .easeOut(duration: 0.15), value: isFocused)
     }
 }
 
@@ -54,10 +57,12 @@ struct ParentPageScaffold<Content: View>: View {
                 if pageCount > 1 {
                     Text("Page \(page.wrappedValue + 1) of \(pageCount)")
                         .font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
+                        .accessibilityLabel("Page \(page.wrappedValue + 1) of \(pageCount)")
                 }
             }
             if let pageTitle = pageTitle {
                 Text(pageTitle).font(Theme.bodyFont).foregroundStyle(Theme.accent)
+                    .accessibilityAddTraits(.isHeader)
             }
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -77,8 +82,8 @@ struct ParentPageScaffold<Content: View>: View {
                 }
                 .buttonStyle(FocusCardStyle())
                 .a11yID(idPrefix + ".prev")
-                .accessibilityLabel("Previous page")
-                .accessibilityHint("Shows page \(((page.wrappedValue + pageCount - 1) % pageCount) + 1) of \(pageCount)")
+                .accessibilityLabel("Previous page. Page \(((page.wrappedValue + pageCount - 1) % pageCount) + 1) of \(pageCount)")
+                .accessibilityHint("You are on page \(page.wrappedValue + 1) of \(pageCount)")
 
                 Button { page.wrappedValue = (page.wrappedValue + 1) % pageCount } label: {
                     Label("Next", systemImage: "chevron.right").font(Theme.bodyFont)
@@ -86,8 +91,8 @@ struct ParentPageScaffold<Content: View>: View {
                 .buttonStyle(FocusCardStyle(prominent: true))
                 .prefersDefaultFocus(pagerIsDefault, in: focusNS)
                 .a11yID(idPrefix + ".next")
-                .accessibilityLabel("Next page")
-                .accessibilityHint("Shows page \(((page.wrappedValue + 1) % pageCount) + 1) of \(pageCount)")
+                .accessibilityLabel("Next page. Page \(((page.wrappedValue + 1) % pageCount) + 1) of \(pageCount)")
+                .accessibilityHint("You are on page \(page.wrappedValue + 1) of \(pageCount)")
             }
             Spacer(minLength: 0)
             Button(action: onBack) {
@@ -108,7 +113,8 @@ struct ParentInfoBlock: View {
     let text: String
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(heading).font(.system(size: 42, weight: .semibold, design: .rounded)).foregroundStyle(Theme.accent)
+            Text(heading).font(Theme.subheadingFont).foregroundStyle(Theme.accent)
+                .accessibilityAddTraits(.isHeader)
             Text(text).font(Theme.bodyFont).foregroundStyle(Theme.text)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -132,7 +138,8 @@ struct ParentStatTile: View {
 }
 
 /// "- value +" control. Buttons never get disabled (a disabled button loses focus and the focus would jump);
-/// at a limit the press does nothing and the value text says so.
+/// at a limit the press does nothing and the value text says so. For VoiceOver the value is also an adjustable
+/// element (swipe up/down = increase/decrease) in addition to the two buttons.
 struct ParentStepperRow: View {
     let title: String
     let hint: String
@@ -145,10 +152,24 @@ struct ParentStepperRow: View {
         HStack(spacing: 24) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(Theme.bodyFont).bold()
-                Text(hint).font(Theme.captionFont).foregroundStyle(Theme.textSecondary).lineLimit(1).minimumScaleFactor(0.75)
+                Text(hint).font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            // VoiceOver: this label block is the adjustable element (swipe up/down). The visible value text below is kept
+            // as plain static text ("<title> is <value>") because UI tests read it.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(title)
+            .accessibilityValue(valueText)
+            .accessibilityHint("\(hint) Swipe up or down to change.")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: onInc()
+                case .decrement: onDec()
+                @unknown default: break
+                }
             }
             Spacer(minLength: 16)
-            Button(action: onDec) { Image(systemName: "minus").font(.system(size: 44, weight: .bold)) }
+            Button(action: onDec) { Image(systemName: "minus").font(Theme.controlGlyphFont) }
                 .buttonStyle(FocusCardStyle())
                 .a11yID(idPrefix + ".minus")
                 .accessibilityLabel("Decrease \(title)")
@@ -156,7 +177,7 @@ struct ParentStepperRow: View {
             Text(valueText).font(Theme.headingFont).monospacedDigit()
                 .frame(minWidth: 230).multilineTextAlignment(.center)
                 .accessibilityLabel("\(title) is \(valueText)")
-            Button(action: onInc) { Image(systemName: "plus").font(.system(size: 44, weight: .bold)) }
+            Button(action: onInc) { Image(systemName: "plus").font(Theme.controlGlyphFont) }
                 .buttonStyle(FocusCardStyle())
                 .a11yID(idPrefix + ".plus")
                 .accessibilityLabel("Increase \(title)")
@@ -178,10 +199,11 @@ struct ParentToggleRow: View {
             HStack(spacing: 24) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(Theme.bodyFont).bold()
-                    Text(hint).font(Theme.captionFont).lineLimit(3).minimumScaleFactor(0.8).multilineTextAlignment(.leading)
+                    Text(hint).font(Theme.captionFont).multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 16)
-                Image(systemName: isOn ? "checkmark.circle.fill" : "circle").font(.system(size: 44))
+                Image(systemName: isOn ? "checkmark.circle.fill" : "circle").font(Theme.controlGlyphFont)
                 Text(isOn ? "On" : "Off").font(Theme.headingFont).frame(minWidth: 110, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,6 +212,7 @@ struct ParentToggleRow: View {
         .a11yID(id)
         .accessibilityLabel(title)
         .accessibilityValue(isOn ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
         .accessibilityHint("Press Select to switch \(isOn ? "off" : "on"). \(hint)")
     }
 }

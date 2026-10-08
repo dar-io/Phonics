@@ -54,8 +54,9 @@ struct ConfirmOverlay: View {
             .accessibilityElement(children: .contain)
         }
         .defaultFocus($focus, Field.keep)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .keep }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = .keep
         }
         .onExitCommand { onKeep() }
         .accessibilityAddTraits(.isModal)
@@ -91,18 +92,48 @@ final class SessionModel: ObservableObject {
         if didStart { return }
         didStart = true
         let when = env.now
-        seed = UInt64(truncatingIfNeeded: Int64(Date().timeIntervalSince1970))
+        seed = env.options.seed ?? UInt64(truncatingIfNeeded: Int64(Date().timeIntervalSince1970))
         let minutes = env.options.sessionMinutes ?? min(10, max(3, env.settings.mastery.sessionMinutes))
+        let focusId = SessionModel.overrideFocusUnit(env: env, now: when)
         let plan = SessionPlanner.plan(index: env.index, snapshot: env.snapshot, now: when, seed: seed,
-                                       minutes: minutes, focusUnitId: nil)
+                                       minutes: minutes, focusUnitId: focusId)
         sessionId = plan.id
-        activities = plan.activities
+        activities = plan.activities.map { DebugHooks.arranged($0, options: env.options) }
         modelledKeys = plan.modelledKeys
         summary = SessionSummary(id: plan.id, startedAt: when)
         masteredBefore = env.masteredUnitIds()
         startedAt = Date()
         maxSeconds = Double(minutes + 3) * 60
         isEmpty = plan.activities.isEmpty
+    }
+
+    /// Parent overrides must change what is played. A grown-up's "Unlock" or "Practise this next" request becomes the
+    /// session's focus unit when the planner would not otherwise reach it:
+    ///  - `.unlocked`: the unit is not mastered yet (so it is taught even though earlier units are still open);
+    ///  - `.revisit`: the unit lies beyond the current frontier (units at or before it are already reviewed).
+    /// The newest request wins. After the unit has been practised in three sessions the request stops steering,
+    /// so a standing override cannot pin the child to one sound forever.
+    static func overrideFocusUnit(env: AppEnvironment, now: Date) -> String? {
+        let snapshot = env.snapshot
+        let latest = Progression.latestOverrides(snapshot)
+        if latest.isEmpty { return nil }
+        let mastered = env.masteredUnitIds()
+        let frontier = Progression.nextUnit(index: env.index, snapshot: snapshot, now: now)?.order ?? env.index.maxOrder
+        var best: ParentOverride?
+        for o in snapshot.profile.overrides {
+            guard latest[o.unitId] == o.mode, let unit = env.index.unit(id: o.unitId) else { continue }
+            let eligible: Bool
+            switch o.mode {
+            case .unlocked: eligible = !mastered.contains(o.unitId)
+            case .revisit: eligible = unit.order > frontier
+            }
+            guard eligible else { continue }
+            let sessionsOnIt = snapshot.sessions.filter { $0.unitsPractised.contains(o.unitId) }.count
+            if sessionsOnIt >= 3 { continue }
+            if let b = best, b.at > o.at { continue }
+            best = o
+        }
+        return best?.unitId
     }
 
     /// Records the outcome of the activity that just finished. Returns false when the session is over.
@@ -218,7 +249,10 @@ struct SessionRunnerView: View {
         .frame(maxWidth: .infinity)
         .screenContainer()
         .defaultFocus($emptyFocus, true)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { emptyFocus = true } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            emptyFocus = true
+        }
         .onExitCommand { env.route = .home }
     }
 
@@ -228,7 +262,8 @@ struct SessionRunnerView: View {
     }
 
     private func endSession(completed: Bool) {
-        env.cancelSequence()
+        // Silence everything first so the summary is never read over a stale prompt.
+        env.stopNarration()
         if let summary = model.finish(env: env, completed: completed) {
             env.route = .summary(summary)
         } else {

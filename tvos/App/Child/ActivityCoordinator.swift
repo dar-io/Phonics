@@ -66,6 +66,8 @@ final class ActivityCoordinator: ObservableObject {
     private let env: AppEnvironment
     private var shownAt = Date()
     private var started = false
+    /// Names this activity's prompt sequence so leaving the screen cannot cut off the next activity's prompt.
+    private var promptToken: Int?
 
     var idPrefix: String { mode == .baseline ? "baseline" : "session" }
 
@@ -89,7 +91,13 @@ final class ActivityCoordinator: ObservableObject {
     }
 
     func playPrompt(slow: Bool) {
-        env.playSequence(activity.audioIds, slow: slow)
+        promptToken = env.playSequence(activity.audioIds, slow: slow)
+    }
+
+    /// The screen is going away (next activity, summary, home): stop this activity's speech and sounds.
+    func end() {
+        if let token = promptToken { env.cancelSequence(token: token) }
+        promptToken = nil
     }
 
     // MARK: Derived state
@@ -125,6 +133,7 @@ final class ActivityCoordinator: ObservableObject {
     /// A choice card was selected.
     func choose(_ choice: Choice, in choices: [Choice]) {
         guard canSelect(choice) else { return }
+        env.interruptPrompt()
         if let audio = choice.audioId { env.playAudio(audio) }
         let expected = choices.first(where: { $0.correct })?.label
         submit(correct: choice.correct, chosen: choice.label, expected: expected, choiceId: choice.id)
@@ -177,6 +186,7 @@ final class ActivityCoordinator: ObservableObject {
     /// modelled) support because a self-report is not evidence of independent mastery.
     func submitSelfReport(text: String) {
         if phase == .complete { return }
+        env.interruptPrompt()
         let ms = Int(Date().timeIntervalSince(shownAt) * 1000)
         let support: SupportLevel = (phase == .guided || startsModelled) ? .modelled : .prompted
         let answer = Answer(correct: true, support: support, responseMs: ms, chosen: nil, expected: nil)

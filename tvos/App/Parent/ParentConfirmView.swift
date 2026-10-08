@@ -16,9 +16,9 @@ enum ParentDataAction: Hashable {
     func message(nickname: String) -> String {
         switch self {
         case .resetProgress:
-            return "This clears \(nickname)'s sound progress, sessions and stickers so they start again. The profile and settings stay. It cannot be undone."
+            return "This clears \(nickname)'s sound progress, sessions and stickers so they start again. The profile and settings stay. A backup already in iCloud is not changed. It cannot be undone."
         case .deleteEverything:
-            return "This removes all learning data and settings from this Apple TV, and any iCloud backup. It cannot be undone."
+            return "This removes all learning data and settings from this Apple TV and asks iCloud to delete the backup copy (iCloud finishes this when it can). It cannot be undone."
         case .restoreBackup:
             return "This brings back the progress saved in iCloud. Progress saved there replaces matching progress on this Apple TV."
         case .deleteBackupCopy:
@@ -49,7 +49,7 @@ struct ParentConfirmView: View {
 
     var body: some View {
         VStack(spacing: 36) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 80))
+            Image(systemName: "exclamationmark.triangle.fill").font(Theme.iconLargeFont)
             Text(action.title).font(Theme.titleFont).multilineTextAlignment(.center)
                 .accessibilityAddTraits(.isHeader)
             Text(action.message(nickname: nickname)).font(Theme.bodyFont).multilineTextAlignment(.center)

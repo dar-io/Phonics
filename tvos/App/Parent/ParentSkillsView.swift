@@ -60,7 +60,8 @@ struct ParentSkillsView: View {
                         Button { category = c; page = 0 } label: {
                             HStack(spacing: 8) {
                                 if c == category { Image(systemName: "checkmark") }
-                                Text("\(c.title) \(counts[c] ?? 0)").lineLimit(1).minimumScaleFactor(0.7)
+                                Text("\(c.title) \(counts[c] ?? 0)").multilineTextAlignment(.center)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .font(Theme.captionFont).frame(maxWidth: .infinity)
                         }
@@ -96,10 +97,10 @@ struct ParentSkillsView: View {
         let name = unit.map { "\($0.order). \(ParentFormat.label($0))" } ?? e.unitId
         return Button { lastSelected = e.unitId; selected = e.unitId } label: {
             HStack(spacing: 18) {
-                Image(systemName: e.status.parentSymbol).font(.system(size: 36)).frame(width: 48)
+                Image(systemName: e.status.parentSymbol).font(Theme.controlGlyphFont).frame(width: 56)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(name).font(Theme.bodyFont).bold().lineLimit(1).minimumScaleFactor(0.7)
-                    Text(e.reason).font(Theme.captionFont).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(name).font(Theme.bodyFont).bold().lineLimit(2)
+                    Text(e.reason).font(Theme.captionFont).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 Text(e.status.parentWord).font(Theme.captionFont).bold()
@@ -132,7 +133,7 @@ struct ParentSkillsView: View {
                 ForEach(Array(unit.misconceptions.prefix(2).enumerated()), id: \.offset) { _, m in
                     Text("Easy to mix up with '\(m.confusedWith)': \(m.guidance)")
                         .font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
-                        .lineLimit(2).minimumScaleFactor(0.8)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Button {
                     if marked { ParentPracticeActions.unmark(unit.id, env: env) }

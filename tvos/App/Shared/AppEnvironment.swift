@@ -4,6 +4,9 @@ import StorySoundsCore
 #if canImport(AVFoundation)
 import AVFoundation
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Top-level navigation. Root screens (onboarding, home) deliberately let the system handle Menu (leaves the app).
 enum Route: Equatable {
@@ -15,13 +18,19 @@ enum Route: Equatable {
     case parent
 }
 
-/// Launch arguments understood by the app. They exist so UI tests are deterministic; real users never pass them.
-///  - `-uitest-reset`          wipe every stored learner / setting at launch
-///  - `-uitest-inmemory`       use in-memory stores (nothing is written to disk)
-///  - `-uitest-reduce-motion`  behave as if Reduce Motion / gentle mode were on
-///  - `-uitest-no-audio`       silent backend and no text-to-speech (captions only)
-///  - `-uitest-fast-review`    treat "now" as +2 days (exercises delayed review)
-///  - `-uitest-day-offset N`   treat "now" as +N days
+/// Launch arguments understood by the DEBUG build. They exist so UI tests are deterministic.
+/// In Release builds `init(arguments:)` ignores its input entirely, so a shipping app can never be switched into
+/// test behaviour (or wiped) by a launch argument. CI builds Debug, so the UI tests still work.
+///  - `-uitest-reset`              wipe every stored learner / setting at launch
+///  - `-uitest-inmemory`           use in-memory stores (nothing is written to disk)
+///  - `-uitest-reduce-motion`      behave as if Reduce Motion / gentle mode were on
+///  - `-uitest-no-audio`           silent backend and no text-to-speech (captions only)
+///  - `-uitest-fast-review`        treat "now" as +2 days (exercises delayed review)
+///  - `-uitest-day-offset N`       treat "now" as +N days
+///  - `-uitest-session-minutes N`  override the session length
+///  - `-uitest-seed N`             fixed session seed (repeatable lessons)
+///  - `-uitest-force-load-error`   show the friendly load-error screen (Retry clears the flag)
+///  - `-uitest-first-choice-wrong` arrange choices so `choice.0` is wrong (deterministic "do it together" path)
 struct LaunchOptions: Equatable {
     var reset = false
     var inMemory = false
@@ -32,20 +41,93 @@ struct LaunchOptions: Equatable {
     var skipGateHold = false
     /// UI tests only: override the session length in minutes.
     var sessionMinutes: Int?
+    /// UI tests only: fixed seed for session planning.
+    var seed: UInt64?
+    /// UI tests only: pretend the lessons could not be loaded.
+    var forceLoadError = false
+    /// UI tests only: put the correct answer last and make `choice.0` a wrong one.
+    var firstChoiceWrong = false
 
     init(arguments: [String] = []) {
+        #if DEBUG
         reset = arguments.contains("-uitest-reset")
         inMemory = arguments.contains("-uitest-inmemory")
         reduceMotion = arguments.contains("-uitest-reduce-motion")
         noAudio = arguments.contains("-uitest-no-audio")
         skipGateHold = arguments.contains("-uitest-parent-gate-pass")
+        forceLoadError = arguments.contains("-uitest-force-load-error")
+        firstChoiceWrong = arguments.contains("-uitest-first-choice-wrong")
         if let i = arguments.firstIndex(of: "-uitest-session-minutes"), i + 1 < arguments.count, let n = Int(arguments[i + 1]), n > 0 {
             sessionMinutes = n
+        }
+        if let i = arguments.firstIndex(of: "-uitest-seed"), i + 1 < arguments.count, let n = UInt64(arguments[i + 1]) {
+            seed = n
         }
         if arguments.contains("-uitest-fast-review") { dayOffset = 2 }
         if let i = arguments.firstIndex(of: "-uitest-day-offset"), i + 1 < arguments.count, let n = Int(arguments[i + 1]) {
             dayOffset = n
         }
+        #endif
+    }
+}
+
+/// Which saved profile the app opens. Reads are explicit about failure: an unreadable profile is never silently
+/// replaced by a new one (that would orphan the child's progress).
+/// TODO(core): when `LearnerStore.activeProfileId()/setActiveProfileId(_:)/loadMostRecentValid()` land in
+/// StorySoundsCore, delegate to them and delete this local stand-in (same behaviour, stored under its own key).
+enum ProfileSelection {
+    case empty
+    case loaded(LearnerSnapshot)
+    case unreadable
+
+    private static let activeKey = StorageNamespace.root + "ui.activeProfile"
+
+    static func activeId(_ kv: KeyValueStoring) -> String? {
+        guard let d = kv.data(forKey: activeKey), let s = String(data: d, encoding: .utf8), !s.isEmpty else { return nil }
+        return s
+    }
+
+    static func setActiveId(_ id: String, in kv: KeyValueStoring) {
+        try? kv.setData(Data(id.utf8), forKey: activeKey)
+    }
+
+    /// Newest evidence of use, so "most recent valid profile" does not depend on key order.
+    static func recency(_ s: LearnerSnapshot) -> Date {
+        var d = s.profile.createdAt
+        if let a = s.attempts.map({ $0.at }).max(), a > d { d = a }
+        if let e = s.sessions.map({ $0.endedAt ?? $0.startedAt }).max(), e > d { d = e }
+        return d
+    }
+
+    static func choose(store: LearnerStore, kv: KeyValueStoring) -> ProfileSelection {
+        let ids: [String]
+        do {
+            ids = try store.listProfileIds()
+        } catch {
+            return .unreadable
+        }
+        if ids.isEmpty { return .empty }
+        if let active = activeId(kv), ids.contains(active) {
+            do {
+                if let s = try store.load(profileId: active) { return .loaded(s) }
+            } catch {
+                // The profile we know is the live one cannot be read: do NOT fall back to another or start fresh.
+                return .unreadable
+            }
+        }
+        var best: LearnerSnapshot?
+        var failed = false
+        for id in ids {
+            do {
+                guard let s = try store.load(profileId: id) else { continue }
+                if let b = best, recency(b) >= recency(s) { continue }
+                best = s
+            } catch {
+                failed = true
+            }
+        }
+        if let b = best { return .loaded(b) }
+        return failed ? .unreadable : .empty
     }
 }
 
@@ -91,12 +173,14 @@ final class AppEnvironment: ObservableObject {
     @Published var route: Route
     /// Sound on/off for the whole app (kept separate from the volumes so turning it back on restores them).
     @Published private(set) var soundOn: Bool
-    /// Caption for a sound that has no recording yet (phonemes are never synthesised). Auto-clears.
+    /// Caption for a sound that has no recording yet (phonemes are never synthesised). Only set when the parent's
+    /// Captions setting is on; stays until the next prompt or sound, or about 4.5 s.
     @Published private(set) var soundCaption: String? = nil
     /// True after a save failed; the parent area can mention it. Cleared after a successful save.
     @Published private(set) var saveProblem = false
 
     private var sequenceTask: Task<Void, Never>?
+    private var sequenceGeneration = 0
     private var captionTask: Task<Void, Never>?
     private var sessionObserver: AnyObject?
     private static let soundKey = "storysounds.ui.soundOn"
@@ -110,11 +194,19 @@ final class AppEnvironment: ObservableObject {
         do {
             curriculum = try Curriculum.loadBundled()
         } catch {
-            failure = "The stories could not be opened."
+            failure = AppEnvironment.storiesUnavailableMessage
         }
+        #if DEBUG
+        if options.forceLoadError { failure = AppEnvironment.storiesUnavailableMessage }
+        #endif
         let manifest: AudioManifest = (try? AudioManifest.loadBundled()) ?? AppEnvironment.blankManifest()
         return AppEnvironment(options: options, curriculum: curriculum, manifest: manifest, failure: failure)
     }
+
+    /// Wren's line on the recovery screen when the lessons cannot be opened.
+    static let storiesUnavailableMessage = "Oh dear, I can't find our stories right now. Let's try again."
+    /// Wren's line when saved progress exists but cannot be read. Nothing is overwritten.
+    static let progressUnreadableMessage = "Hmm, I can't open our saved adventure just now. Your stars are safe. Let's try again."
 
     /// HOOK for tvOS household users (see `userScope`). Intentionally returns nil; TVServices is not imported.
     static func currentUserScope() -> String? { nil }
@@ -158,13 +250,21 @@ final class AppEnvironment: ObservableObject {
         }
 
         var loaded: LearnerSnapshot?
+        var failureText = failure
         if failure == nil {
             // Never reconcile (and therefore never save) against an empty fallback curriculum.
-            if let id = (try? store.listProfileIds())?.first, let s = try? store.load(profileId: id) {
+            switch ProfileSelection.choose(store: store, kv: kv) {
+            case let .loaded(s):
                 loaded = Migrator.reconcile(s, with: curriculum).snapshot
+            case .empty:
+                break
+            case .unreadable:
+                // Keep the unreadable bytes untouched; saving is disabled while `loadFailure` is set.
+                failureText = AppEnvironment.progressUnreadableMessage
             }
         }
         let snap = loaded ?? AppEnvironment.freshSnapshot(contentVersion: curriculum.contentVersion)
+        if failureText == nil { ProfileSelection.setActiveId(snap.profile.id, in: kv) }
 
         let lib = AudioLibrary(manifest: manifest)
         let backend: AudioBackend = options.noAudio ? SilentAudioBackend() : AVAudioPlayerBackend()
@@ -187,7 +287,7 @@ final class AppEnvironment: ObservableObject {
         self.privacy = privacy
         self.backup = backupService
         self.coordinator = PersistenceCoordinator(store: store)
-        self.loadFailure = failure
+        self.loadFailure = failureText
         self.snapshot = snap
         self.soundOn = on
         self.route = (loaded != nil) ? .home : .onboarding
@@ -275,29 +375,45 @@ final class AppEnvironment: ObservableObject {
     /// Removes every learner snapshot, privacy setting and iCloud backup (DataDeletionService).
     /// On success the in-memory state is replaced by a fresh, UNSAVED profile; the caller decides when to move on
     /// (set `route = .onboarding`). Throws the first error so a grown-up is told the truth.
+    /// Pending changes are dropped only AFTER the deletion succeeded; if it fails the last known state is re-armed
+    /// so nothing the child just did is lost.
     func deleteEverything() throws {
+        // Stop a debounced save from re-creating the profile in the middle of the deletion.
         coordinator.cancelPending()
-        cancelSequence()
+        stopNarration()
         let service = DataDeletionService(store: store, localKeyValue: localKeyValue, privacy: privacy, backup: backup)
-        try service.deleteEverything()
+        do {
+            try service.deleteEverything()
+        } catch {
+            if loadFailure == nil { coordinator.update(snapshot) }
+            throw error
+        }
         let fresh = AppEnvironment.freshSnapshot(contentVersion: curriculum.contentVersion)
         snapshot = fresh
+        ProfileSelection.setActiveId(fresh.profile.id, in: localKeyValue)
         soundOn = true
         audio.isMuted = false
         audio.settings = fresh.profile.settings
         saveProblem = false
     }
 
-    /// Applies a restored iCloud backup to the local store (same-id profiles are overwritten), then reloads in-memory state.
+    /// Applies a restored iCloud backup to the local store (same-id profiles are overwritten), then switches the app
+    /// to the restored profile (the most recently used one when the backup holds several) and remembers that choice.
     /// Returns how many profiles were written. Throws so the parent is told the truth if restore fails.
+    /// The latest unsaved changes are flushed BEFORE the store is touched, so a failed restore loses nothing.
     func restoreFromBackup(_ payload: BackupPayload) throws -> Int {
-        coordinator.cancelPending()
+        if loadFailure == nil { coordinator.flushNow() }
         let written = try BackupRestoration.apply(payload, to: store, curriculum: curriculum, overwrite: true)
-        let ids = try store.listProfileIds()
-        let target = ids.contains(snapshot.profile.id) ? snapshot.profile.id : ids.first
-        if let id = target, let loaded = try store.load(profileId: id) {
-            snapshot = Migrator.reconcile(loaded, with: curriculum).snapshot
+        var best: LearnerSnapshot?
+        for id in written {
+            guard let candidate = try store.load(profileId: id) else { continue }
+            if let b = best, ProfileSelection.recency(b) >= ProfileSelection.recency(candidate) { continue }
+            best = candidate
+        }
+        if let restored = best {
+            snapshot = Migrator.reconcile(restored, with: curriculum).snapshot
             audio.settings = snapshot.profile.settings
+            ProfileSelection.setActiveId(snapshot.profile.id, in: localKeyValue)
         }
         return written.count
     }
@@ -315,8 +431,7 @@ final class AppEnvironment: ObservableObject {
 
     func sceneLeftForeground() {
         flush()
-        cancelSequence()
-        audio.stopAll()
+        stopNarration()
     }
 
     // MARK: Recording
@@ -371,31 +486,108 @@ final class AppEnvironment: ObservableObject {
         return result
     }
 
-    /// Plays ids one after another with fixed gaps (a new call replaces the previous one).
-    func playSequence(_ ids: [String], slow: Bool = false) {
+    /// A child's own action (tapping a sound or a word) takes over from any prompt that is still being read out.
+    @discardableResult
+    func playAudioInterrupting(_ id: String, slow: Bool = false) -> PlaybackResult {
+        interruptPrompt()
+        return playAudio(id, slow: slow)
+    }
+
+    /// Plays ids one after another. A new call replaces the previous one: everything still playing or queued
+    /// (including text-to-speech) is stopped first, so prompts never overlap or pile up. The wait after each clip is
+    /// an estimate from the clip kind and text length because the audio controller does not report completion.
+    /// Returns a token; pass it to `cancelSequence(token:)` so a screen only cancels its own prompt.
+    @discardableResult
+    func playSequence(_ ids: [String], slow: Bool = false) -> Int {
         sequenceTask?.cancel()
+        sequenceGeneration += 1
+        let generation = sequenceGeneration
+        audio.stopAll()
+        clearSoundCaption()
         sequenceTask = Task { @MainActor [weak self] in
-            for id in ids {
-                guard let strong = self, !Task.isCancelled else { return }
-                strong.playAudio(id, slow: slow)
-                let kind = strong.library.entry(for: id)?.kind
-                let seconds: Double = (kind == .instruction) ? 1.8 : (kind == .phoneme ? 1.0 : 1.2)
+            for (n, id) in ids.enumerated() {
+                guard let strong = self, !Task.isCancelled, strong.sequenceGeneration == generation else { return }
+                if n > 0 { strong.audio.stopAll() }
+                let result = strong.playAudio(id, slow: slow)
+                let seconds = strong.estimatedSeconds(for: id, result: result, slow: slow)
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             }
         }
+        return generation
     }
 
+    /// Stops the running prompt sequence only (not the sound that is playing right now).
     func cancelSequence() {
         sequenceTask?.cancel()
         sequenceTask = nil
     }
 
+    /// Cancels and silences narration, but only if `token` still names the current sequence. A screen that is
+    /// going away calls this so it cannot cut off the prompt of the screen that replaced it.
+    func cancelSequence(token: Int) {
+        guard token == sequenceGeneration else { return }
+        stopNarration()
+    }
+
+    /// Stops the prompt sequence, any speech and every sound. Use when leaving an activity or the scene.
+    func stopNarration() {
+        cancelSequence()
+        sequenceGeneration += 1
+        audio.stopAll()
+        clearSoundCaption()
+    }
+
+    /// Cuts off the rest of a prompt because the child acted. Keeps the caption (it explains what was just tapped).
+    func interruptPrompt() {
+        cancelSequence()
+        sequenceGeneration += 1
+        audio.stopAll()
+    }
+
+    private func estimatedSeconds(for id: String, result: PlaybackResult, slow: Bool) -> Double {
+        let kind = library.entry(for: id)?.kind
+        var seconds: Double
+        switch result {
+        case let .spokenPlaceholder(text):
+            let words = Double(text.split(separator: " ").count)
+            seconds = max(1.0, 0.7 + words * 0.42)
+        case .played:
+            seconds = (kind == .instruction) ? 2.4 : (kind == .phoneme ? 1.0 : 1.2)
+        case .captionOnly:
+            seconds = (kind == .phoneme) ? 1.6 : 0.4
+        case .unavailable:
+            seconds = 0.2
+        }
+        if slow { seconds *= 1.4 }
+        return seconds
+    }
+
+    // MARK: Captions and announcements
+
     private func showSoundCaption(_ label: String) {
+        // The announcement is for VoiceOver users and does not depend on the on-screen caption setting.
+        announce("Sound \(AccessibilityText.spoken(label))")
+        guard settings.showCaptions else { return }
         soundCaption = label
         captionTask?.cancel()
+        // Long enough for a young reader (or a parent) to read; it is replaced by the next sound or prompt.
         captionTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
+            try? await Task.sleep(nanoseconds: 4_500_000_000)
             if !Task.isCancelled { self?.soundCaption = nil }
         }
+    }
+
+    private func clearSoundCaption() {
+        captionTask?.cancel()
+        captionTask = nil
+        if soundCaption != nil { soundCaption = nil }
+    }
+
+    /// Speaks a status change to VoiceOver (feedback, "do it together" steps, sound captions). No-op otherwise.
+    func announce(_ text: String) {
+        #if canImport(UIKit)
+        guard !text.isEmpty, UIAccessibility.isVoiceOverRunning else { return }
+        UIAccessibility.post(notification: .announcement, argument: text)
+        #endif
     }
 }

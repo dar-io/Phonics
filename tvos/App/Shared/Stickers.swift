@@ -24,21 +24,29 @@ enum StickerCatalog {
     ]
     static let masteryPool: [String] = ["\u{1F4D6}", "\u{1F4DA}", "\u{1F9E9}", "\u{1F514}", "\u{1F9ED}", "\u{1F5DD}", "\u{1F3B5}", "\u{1F36F}"]
 
+    /// Total, non-negative modulo: safe for negative or huge numbers and for an empty pool (returns 0).
+    static func wrap(_ n: Int, _ count: Int) -> Int {
+        guard count > 0 else { return 0 }
+        let r = n % count
+        return r < 0 ? r + count : r
+    }
+
+    /// Safe for ANY id, including ones from a corrupt or tampered snapshot ("effort--3", "effort-99999999999999999999").
     static func info(for id: String, index: CurriculumIndex?) -> StickerInfo {
         if id == "welcome" { return StickerInfo(id: id, emoji: "\u{1F426}", title: "Hello, Wren!", kind: .welcome) }
         if id.hasPrefix("effort-"), let n = Int(id.dropFirst(7)) {
-            let p = effortPool[n % effortPool.count]
+            let p = effortPool[wrap(n, effortPool.count)]
             return StickerInfo(id: id, emoji: p.emoji, title: p.title, kind: .effort)
         }
         if id.hasPrefix("practice-"), let n = Int(id.dropFirst(9)) {
             let slot = practiceMilestones.firstIndex(of: n) ?? 0
-            let p = practicePool[slot % practicePool.count]
+            let p = practicePool[wrap(slot, practicePool.count)]
             return StickerInfo(id: id, emoji: p.emoji, title: p.title, kind: .practice)
         }
         if id.hasPrefix("mastery-") {
             let unitId = String(id.dropFirst(8))
             let unit = index?.unit(id: unitId)
-            let emoji = masteryPool[(unit?.order ?? 0) % masteryPool.count]
+            let emoji = masteryPool[wrap(unit?.order ?? 0, masteryPool.count)]
             let title = unit.map { "Sound \($0.phoneme)" } ?? "Sound star"
             return StickerInfo(id: id, emoji: emoji, title: title, kind: .mastery)
         }

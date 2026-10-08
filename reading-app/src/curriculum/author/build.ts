@@ -205,11 +205,27 @@ for (const u of curriculum.units) {
     note: `Isolated sound for ${u.graphemes.join(' / ')}. ${PLACEHOLDER_NOTE} Record as a pure, crisp sound with no added 'uh'.`,
   });
 }
+// Audio ids for words are ALWAYS lower-case ("w-" + text.toLowerCase()); the tvOS engine derives them the same way.
+const wordAudioId = (text: string): string => `w-${text.toLowerCase()}`;
 for (const w of curriculum.words) {
-  add({ id: `w-${w.text}`, kind: 'word', label: w.text, file: null, status: 'placeholder', note: PLACEHOLDER_NOTE });
+  add({ id: wordAudioId(w.text), kind: 'word', label: w.text, file: null, status: 'placeholder', note: PLACEHOLDER_NOTE });
 }
 for (const t of curriculum.trickyWords) {
-  add({ id: `w-${t.text.toLowerCase()}`, kind: 'word', label: t.text, file: null, status: 'placeholder', note: `Tricky word. ${PLACEHOLDER_NOTE}` });
+  add({ id: wordAudioId(t.text), kind: 'word', label: t.text, file: null, status: 'placeholder', note: `Tricky word. ${PLACEHOLDER_NOTE}` });
+}
+// Every token of every sentence (names such as "Zak", tricky tokens such as "I", "Mr") needs an entry too, because
+// sentence and story activities reference them. `add` ignores ids that already exist.
+for (const s of curriculum.sentences) {
+  for (const tok of s.tokens) {
+    add({
+      id: wordAudioId(tok.text),
+      kind: 'word',
+      label: tok.text,
+      file: null,
+      status: 'placeholder',
+      note: tok.kind === 'tricky' ? `Tricky word. ${PLACEHOLDER_NOTE}` : `Word or name used in sentences. ${PLACEHOLDER_NOTE}`,
+    });
+  }
 }
 const INSTRUCTIONS: Array<[string, string]> = [
   ['i-lets-sound-it-out', "Let's sound it out together"],

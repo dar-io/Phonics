@@ -58,6 +58,8 @@ struct ParentAreaView: View {
                 menu
             }
         }
+        // Gentle mode also calms the focus motion in the grown-ups' area.
+        .environment(\.calmMotion, env.calmMotion)
         // Re-arm the gate if the app leaves the foreground.
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { unlocked = false; open = nil }
@@ -67,19 +69,19 @@ struct ParentAreaView: View {
     // MARK: Menu
 
     private var menu: some View {
-        VStack(alignment: .leading, spacing: 28) {
+        VStack(alignment: .leading, spacing: 24) {
             Text("Grown-ups' area").font(Theme.titleFont).accessibilityAddTraits(.isHeader)
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 32), count: 3), spacing: 32) {
                 ForEach(ParentSection.allCases) { section in
                     Button { lastOpened = section; open = section } label: {
                         VStack(spacing: 12) {
-                            Image(systemName: section.symbol).font(.system(size: 64))
-                            Text(section.title).font(.system(size: 42, weight: .bold, design: .rounded))
-                                .multilineTextAlignment(.center).minimumScaleFactor(0.7).lineLimit(2)
+                            Image(systemName: section.symbol).font(Theme.iconMediumFont)
+                            Text(section.title).font(Theme.subheadingFont.bold())
+                                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                             Text(section.subtitle).font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
-                                .multilineTextAlignment(.center).minimumScaleFactor(0.7).lineLimit(1)
+                                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 230)
+                        .frame(maxWidth: .infinity, minHeight: 220)
                     }
                     .buttonStyle(FocusCardStyle())
                     .focused($menuFocus, equals: section)

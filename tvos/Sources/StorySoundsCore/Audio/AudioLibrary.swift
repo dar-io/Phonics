@@ -54,10 +54,11 @@ public final class AudioLibrary {
         }
     }
 
-    public func entry(for id: String) -> AudioEntry? { entriesById[id] }
+    /// Exact id first, then the lower-cased id (word ids are lower-case in the manifest; see `AudioIds`).
+    public func entry(for id: String) -> AudioEntry? { return entriesById[id] ?? entriesById[id.lowercased()] }
 
     public func resolve(_ id: String) -> ResolvedAudio {
-        guard let e = entriesById[id] else {
+        guard let e = entry(for: id) else {
             return ResolvedAudio(id: id, kind: nil, label: id, status: nil, source: .unknownId, url: nil, slowURL: nil)
         }
         if e.status != .placeholder, let f = e.file, let url = bundleResolver(f) {

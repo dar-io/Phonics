@@ -23,6 +23,17 @@ public protocol SpeechFallback: AnyObject {
     func stop()
     func pause()
     func resume()
+    /// True while an utterance is queued or being spoken. Default: false (implementations that cannot tell).
+    var isSpeaking: Bool { get }
+    /// Registers a handler invoked (on the main thread) when an utterance finishes NATURALLY.
+    /// It must NOT be invoked for an utterance that was cut off by `stop()` or by a newer `speak`.
+    /// Default: ignored (callers then fall back to their timeout).
+    func setOnFinished(_ handler: (() -> Void)?)
+}
+
+public extension SpeechFallback {
+    var isSpeaking: Bool { return false }
+    func setOnFinished(_ handler: (() -> Void)?) {}
 }
 
 public protocol AudioPlayer: AnyObject {
@@ -52,14 +63,74 @@ public final class AudioPlaybackController: AudioPlayer {
     private let backend: AudioBackend
     private let speech: SpeechFallback?
     private var musicURL: URL?
+    private var narrationActive: Bool = false
 
     public init(library: AudioLibrary, backend: AudioBackend, speech: SpeechFallback? = nil, settings: LearnerSettings = LearnerSettings()) {
         self.library = library; self.backend = backend; self.speech = speech; self.settings = settings
-        self.backend.onChannelFinished = { [weak self] _ in self?.channelFinished() }
+        self.backend.onChannelFinished = { [weak self] ch in self?.channelFinished(ch) }
+        self.speech?.setOnFinished { [weak self] in self?.speechFinished() }
     }
 
-    private func channelFinished() {
+    private func channelFinished(_ channel: AudioChannel) {
+        if channel == .narration && !(speech?.isSpeaking ?? false) { narrationActive = false }
+        if !backend.isAnythingPlaying && !(speech?.isSpeaking ?? false) { machine.handle(.playbackFinished) }
+    }
+
+    private func speechFinished() {
+        narrationActive = false
         if !backend.isAnythingPlaying { machine.handle(.playbackFinished) }
+    }
+
+    /// Cuts off whatever narration (recording OR speech) is in flight. Always called before new narration starts,
+    /// so utterances never queue up behind each other.
+    private func interruptNarration() {
+        backend.stop(channel: .narration)
+        speech?.stop()
+        narrationActive = false
+    }
+
+    /// True while a narration clip (recording or placeholder speech) is playing.
+    public var isNarrationActive: Bool { return narrationActive }
+
+    /// Suspends until the current narration clip has finished, was stopped, or `timeout` seconds passed
+    /// (a safety net for speech engines that never report completion). Cooperative with Task cancellation.
+    public func waitForNarrationEnd(timeout: TimeInterval = 15) async {
+        let deadline = Date().addingTimeInterval(max(0, timeout))
+        while narrationActive && Date() < deadline && !Task.isCancelled {
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
+    }
+
+    /// Plays `audioId` and returns once it has finished (immediately when nothing audible started: caption only etc.).
+    @discardableResult
+    public func playAndWait(_ audioId: String, options: PlaybackOptions = PlaybackOptions(), timeout: TimeInterval = 15) async -> PlaybackResult {
+        let result = play(audioId, options: options)
+        switch result {
+        case .played, .spokenPlaceholder:
+            await waitForNarrationEnd(timeout: timeout)
+        case .captionOnly, .unavailable:
+            break
+        }
+        return result
+    }
+
+    /// Plays ids one after another, each starting only after the previous clip has actually finished.
+    /// Replaces fixed sleeps. `captionDwell` is how long to pause after an id that produced no sound (a caption is on screen).
+    /// `perResult` lets the caller show captions. Stops early when the surrounding Task is cancelled.
+    public func playSequenceAndWait(_ ids: [String], options: PlaybackOptions = PlaybackOptions(), gap: TimeInterval = 0.2,
+                                    captionDwell: TimeInterval = 1.0, perResult: ((String, PlaybackResult) -> Void)? = nil) async {
+        for id in ids {
+            if Task.isCancelled { return }
+            let result = await playAndWait(id, options: options)
+            perResult?(id, result)
+            if Task.isCancelled { return }
+            switch result {
+            case .played, .spokenPlaceholder:
+                if gap > 0 { try? await Task.sleep(nanoseconds: UInt64(gap * 1_000_000_000)) }
+            case .captionOnly, .unavailable:
+                if captionDwell > 0 { try? await Task.sleep(nanoseconds: UInt64(captionDwell * 1_000_000_000)) }
+            }
+        }
     }
 
     private func applyVolumes() {
@@ -81,24 +152,27 @@ public final class AudioPlaybackController: AudioPlayer {
         case let .caption(label):
             return .captionOnly(label: label)
         case let .playFile(url, ch, rate, slowVariant):
-            if ch == .narration { backend.stop(channel: .narration); speech?.stop() }
+            if ch == .narration { interruptNarration() }
             if backend.play(url: url, channel: ch, volume: volume, rate: rate, loop: false) {
                 machine.handle(.playbackStarted)
+                if ch == .narration { narrationActive = true }
                 return .played(audioId: audioId, slowVariant: slowVariant)
             }
             // File could not be played: degrade without crashing, still respecting the phoneme policy.
             if let k = r.kind, SpeechPolicy.isSpeechAllowed(for: k), let sp = speech,
                sp.speak(r.label, kind: k, volume: volume) {
                 machine.handle(.playbackStarted)
+                narrationActive = true
                 return .spokenPlaceholder(text: r.label)
             }
             return r.kind == .sfx ? .unavailable : .captionOnly(label: r.label)
         case let .speak(text):
             // Defence in depth: never speak a phoneme even if the planner were wrong.
             guard let k = r.kind, SpeechPolicy.isSpeechAllowed(for: k), let sp = speech else { return .captionOnly(label: r.label) }
-            backend.stop(channel: .narration)
+            interruptNarration()
             if sp.speak(text, kind: k, volume: volume) {
                 machine.handle(.playbackStarted)
+                narrationActive = true
                 return .spokenPlaceholder(text: text)
             }
             return .captionOnly(label: r.label)
@@ -123,6 +197,7 @@ public final class AudioPlaybackController: AudioPlayer {
 
     public func stopAll() {
         backend.stopAll(); speech?.stop()
+        narrationActive = false
         machine.handle(.userStop)
     }
 
@@ -139,7 +214,7 @@ public final class AudioPlaybackController: AudioPlayer {
         case .none: break
         case .pause: backend.pauseAll(); speech?.pause()
         case .resume: backend.resumeAll(); speech?.resume()
-        case .stop: backend.stopAll(); speech?.stop()
+        case .stop: backend.stopAll(); speech?.stop(); narrationActive = false
         }
     }
 }

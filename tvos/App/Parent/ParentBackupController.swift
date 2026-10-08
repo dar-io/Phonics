@@ -43,7 +43,8 @@ final class ParentBackupAdapter: ParentBackupControlling {
 
     var isAvailable: Bool { service.isAvailable }
     var isOptedIn: Bool { privacy.load().iCloudBackupEnabled }
-    var lastBackupAt: Date? { privacy.load().lastBackupAt }
+    /// Only reported while a copy can actually be read back, so "Last backup" never claims a write that is not there.
+    var lastBackupAt: Date? { service.latestBackupInfo() == nil ? nil : privacy.load().lastBackupAt }
     var latestBackup: BackupInfo? { service.latestBackupInfo() }
 
     func setOptedIn(_ on: Bool) throws {
@@ -51,7 +52,13 @@ final class ParentBackupAdapter: ParentBackupControlling {
         s.iCloudBackupEnabled = on
         try privacy.save(s)
     }
-    func backUpNow() throws { _ = try service.backUp(snapshots: snapshots(), now: Date()) }
+    /// Writes the backup, then reads it back; a missing or different copy is reported as a failure.
+    func backUpNow() throws {
+        let info = try service.backUp(snapshots: snapshots(), now: Date())
+        guard let seen = service.latestBackupInfo(), seen.createdAt == info.createdAt else {
+            throw StorageError.verificationFailed(key: "backup")
+        }
+    }
     func restoreLatest() throws -> Int { try restoreHandler(try service.restore()) }
     func deleteBackupCopy() throws { try service.deleteBackup() }
 }

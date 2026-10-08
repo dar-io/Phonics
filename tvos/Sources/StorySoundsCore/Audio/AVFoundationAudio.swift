@@ -109,22 +109,55 @@ public final class AVAudioPlayerBackend: NSObject, AudioBackend, AVAudioPlayerDe
 }
 
 /// Placeholder text-to-speech. Refuses phonemes. Every utterance is placeholder speech, not authoritative pronunciation.
-public final class AVSpeechFallback: NSObject, SpeechFallback {
+/// A new `speak` always cuts off whatever is still being spoken (utterances never queue up), and completion of an
+/// utterance is reported through `setOnFinished` (only for utterances that ended naturally).
+public final class AVSpeechFallback: NSObject, SpeechFallback, AVSpeechSynthesizerDelegate {
     private let synth = AVSpeechSynthesizer()
+    private var current: AVSpeechUtterance?
+    private var onFinished: (() -> Void)?
     public let isPlaceholderSpeech: Bool = true
     public var languageCode: String = "en-GB"
 
+    public override init() {
+        super.init()
+        synth.delegate = self
+    }
+
+    public var isSpeaking: Bool { return current != nil }
+
+    public func setOnFinished(_ handler: (() -> Void)?) { onFinished = handler }
+
     public func speak(_ text: String, kind: AudioKind, volume: Float) -> Bool {
         guard SpeechPolicy.isSpeechAllowed(for: kind) else { return false }
+        // Cut off in-flight speech first. Clearing `current` before stopping makes the old utterance's cancel callback inert.
+        current = nil
+        if synth.isSpeaking || synth.isPaused { _ = synth.stopSpeaking(at: .immediate) }
         let u = AVSpeechUtterance(string: text)
         u.voice = AVSpeechSynthesisVoice(language: languageCode)
         u.volume = volume
+        current = u
         synth.speak(u)
         return true
     }
-    public func stop() { _ = synth.stopSpeaking(at: .immediate) }
+    public func stop() {
+        current = nil
+        _ = synth.stopSpeaking(at: .immediate)
+    }
     public func pause() { _ = synth.pauseSpeaking(at: .immediate) }
     public func resume() { _ = synth.continueSpeaking() }
+
+    public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        guard utterance === current else { return }
+        current = nil
+        onFinished?()
+    }
+
+    public func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        // A cancelled utterance that is still "current" was cancelled by the system (not by stop/speak): treat as finished.
+        guard utterance === current else { return }
+        current = nil
+        onFinished?()
+    }
 }
 
 #if os(tvOS) || os(iOS) || os(visionOS)

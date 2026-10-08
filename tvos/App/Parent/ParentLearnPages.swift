@@ -70,10 +70,10 @@ struct ParentCurriculumGlance: View {
     private func column(_ title: String, _ rows: [TermCount]) -> some View {
         let total = rows.reduce(0) { $0 + $1.count }
         return VStack(alignment: .leading, spacing: 14) {
-            Text("\(title): \(total) steps").font(.system(size: 42, weight: .semibold, design: .rounded)).foregroundStyle(Theme.accent)
+            Text("\(title): \(total) steps").font(Theme.subheadingFont).foregroundStyle(Theme.accent)
             ForEach(rows.prefix(6)) { r in
                 HStack {
-                    Text(r.name).lineLimit(1).minimumScaleFactor(0.7)
+                    Text(r.name).lineLimit(2)
                     Spacer(minLength: 12)
                     Text("\(r.count)").bold().monospacedDigit()
                 }

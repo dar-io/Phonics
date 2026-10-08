@@ -43,7 +43,10 @@ struct StickerBookView: View {
         }
         .screenContainer()
         .defaultFocus($backFocused, true)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { backFocused = true } }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            backFocused = true
+        }
         .onExitCommand { onClose() }
     }
 

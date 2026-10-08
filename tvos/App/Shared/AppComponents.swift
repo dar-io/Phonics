@@ -3,25 +3,9 @@ import StorySoundsCore
 
 // MARK: Buttons
 
-/// Like `FocusCardStyle` but without the scale animation (used in gentle mode / forced reduced motion).
-/// Keeps the thick outline so focus never depends on motion or colour alone.
-struct CalmFocusStyle: ButtonStyle {
-    var prominent = false
-    @Environment(\.isFocused) private var isFocused
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding(.horizontal, 36).padding(.vertical, 24)
-            .frame(minWidth: Theme.minTarget, minHeight: Theme.minTarget)
-            .foregroundStyle(prominent ? Theme.onAccent : Theme.text)
-            .background(RoundedRectangle(cornerRadius: Theme.cornerRadius).fill(prominent ? Theme.accent : Theme.surfaceRaised))
-            .overlay(RoundedRectangle(cornerRadius: Theme.cornerRadius).stroke(Theme.focusRing, lineWidth: isFocused ? 8 : 0))
-            .opacity(configuration.isPressed ? 0.85 : 1)
-    }
-}
-
-/// The one button used on every child screen. Uses Theme's `FocusCardStyle` and swaps to `CalmFocusStyle`
-/// when gentle mode (or the test flag) asks for no motion. Disabled buttons are not focusable.
+/// The one button used on every child screen. It is ALWAYS a single `Button` with `FocusCardStyle`; Gentle mode only
+/// changes an environment value the style reads (`\.calmMotion`). The view structure therefore never changes when
+/// Gentle mode is toggled, so the focused button keeps its identity and focus. Disabled buttons are not focusable.
 @MainActor
 struct StoryButton<Label: View>: View {
     @EnvironmentObject private var env: AppEnvironment
@@ -36,11 +20,9 @@ struct StoryButton<Label: View>: View {
     }
 
     var body: some View {
-        if env.calmMotion {
-            Button(action: action, label: label).buttonStyle(CalmFocusStyle(prominent: prominent))
-        } else {
-            Button(action: action, label: label).buttonStyle(FocusCardStyle(prominent: prominent))
-        }
+        Button(action: action, label: label)
+            .buttonStyle(FocusCardStyle(prominent: prominent))
+            .environment(\.calmMotion, env.calmMotion)
     }
 }
 
@@ -166,7 +148,7 @@ struct FeedbackBannerView: View {
     var body: some View {
         HStack(spacing: 20) {
             Image(systemName: positive ? "star.fill" : "lightbulb.fill")
-                .font(.system(size: 44))
+                .font(Theme.controlGlyphFont)
                 .foregroundStyle(positive ? Theme.positive : Theme.accent)
                 .accessibilityHidden(true)
             Text(text)

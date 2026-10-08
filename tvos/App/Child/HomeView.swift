@@ -11,6 +11,8 @@ struct HomeView: View {
     @EnvironmentObject private var env: AppEnvironment
     @State private var panel: Panel = .main
     @FocusState private var focus: Field?
+    /// Where focus lands when the main panel (re)appears: Start normally, the Sticker book button after closing it.
+    @State private var landing: Field = .start
 
     private var baselineDone: Bool { env.snapshot.profile.baselineDone }
 
@@ -99,8 +101,13 @@ struct HomeView: View {
         }
         .frame(maxWidth: .infinity)
         .screenContainer()
-        .defaultFocus($focus, Field.start)
-        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .start } }
+        .defaultFocus($focus, landing)
+        .task {
+            // ONE focus assignment per appearance; `landing` already holds the right target.
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = landing
+            landing = .start
+        }
     }
 
     private func startAdventure() {
@@ -113,7 +120,7 @@ struct HomeView: View {
 
     /// Closing the sticker book returns focus to the control that opened it.
     private func closeStickers() {
+        landing = .stickers
         panel = .main
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focus = .stickers }
     }
 }

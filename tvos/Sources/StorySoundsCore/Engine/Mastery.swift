@@ -1,11 +1,23 @@
 import Foundation
 
-/// Calendar-day key (UTC) used for `SkillState.daysSeen`.
+/// Calendar-day key (`yyyy-MM-dd`) used for `SkillState.daysSeen`.
+///
+/// A "day" is the learner's LOCAL calendar day: the default time zone is the device's current one, so an 8 am and a 6 pm
+/// session in Sydney (or two sessions either side of UTC midnight in the US evening) are never mis-counted.
+/// Callers (and tests) can inject a time zone or a full `Calendar`.
 public enum DayKey {
-    public static func string(for date: Date) -> String {
+    /// Fixed UTC zone, for tests and for callers that want the old behaviour.
+    public static var utc: TimeZone { return TimeZone(secondsFromGMT: 0) ?? TimeZone.current }
+
+    public static func string(for date: Date, timeZone: TimeZone = TimeZone.current) -> String {
         var cal: Calendar = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
-        let c: DateComponents = cal.dateComponents([.year, .month, .day], from: date)
+        cal.timeZone = timeZone
+        return string(for: date, calendar: cal)
+    }
+
+    /// Uses the calendar's own time zone. Only the year/month/day components are read.
+    public static func string(for date: Date, calendar: Calendar) -> String {
+        let c: DateComponents = calendar.dateComponents([.year, .month, .day], from: date)
         let y: Int = c.year ?? 1970
         let m: Int = c.month ?? 1
         let d: Int = c.day ?? 1
@@ -75,7 +87,14 @@ public enum Mastery {
     }
 
     /// Folds one attempt into a skill.
-    public static func update(skill: SkillState, attempt: Attempt, settings: MasterySettings, now: Date) -> SkillState {
+    ///
+    /// `timeZone` decides which calendar day an attempt belongs to (default: the device's local time zone).
+    ///
+    /// Recent-error window: when a skill BECOMES secure (first time, or after a refresher recovery) `recentResults` is
+    /// cleared. Errors made while still learning therefore never count against a secure skill, and the demotion rule
+    /// only sees errors made since the skill last became secure.
+    public static func update(skill: SkillState, attempt: Attempt, settings: MasterySettings, now: Date,
+                              timeZone: TimeZone = TimeZone.current) -> SkillState {
         var s: SkillState = skill
         s.lastAttemptAt = now
 
@@ -108,7 +127,7 @@ public enum Mastery {
             s.sessionsSeen.append(attempt.sessionId)
             if s.sessionsSeen.count > maxSessionsStored { s.sessionsSeen.removeFirst(s.sessionsSeen.count - maxSessionsStored) }
         }
-        let day: String = DayKey.string(for: now)
+        let day: String = DayKey.string(for: now, timeZone: timeZone)
         if !s.daysSeen.contains(day) {
             s.daysSeen.append(day)
             if s.daysSeen.count > maxDaysStored { s.daysSeen.removeFirst(s.daysSeen.count - maxDaysStored) }
@@ -136,6 +155,7 @@ public enum Mastery {
             if meets {
                 s.status = .secure
                 if s.secureAt == nil { s.secureAt = now }
+                s.recentResults = []
                 s.nextReviewAt = Scheduler.nextReviewAt(stage: s.reviewStage, from: now, settings: settings)
             } else {
                 s.status = .learning
@@ -156,6 +176,7 @@ public enum Mastery {
                 if s.score >= settings.secureScore && lastResultsAllCorrect(s, count: 3) {
                     s.status = .secure
                     if s.secureAt == nil { s.secureAt = now }
+                    s.recentResults = []
                     s.nextReviewAt = Scheduler.nextReviewAt(stage: s.reviewStage, from: now, settings: settings)
                 }
             } else {

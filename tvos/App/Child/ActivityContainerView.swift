@@ -42,8 +42,13 @@ struct ActivityContainerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 16) {
             header
+            if env.settings.showCaptions {
+                // A reserved slot (not an overlay) so a sound caption never covers the step label or the prompt.
+                SoundCaptionPill()
+                    .frame(maxWidth: .infinity, minHeight: 100, alignment: .center)
+            }
             ScrollView(.vertical, showsIndicators: false) {
                 content
                     .frame(maxWidth: .infinity)
@@ -56,13 +61,14 @@ struct ActivityContainerView: View {
                 .accessibilitySortPriority(1)
         }
         .screenContainer()
-        .overlay(alignment: .top) { SoundCaptionPill().padding(.top, 20) }
         .defaultFocus($focus, initialFocus)
         .disabled(inputDisabled)
-        .onAppear {
-            coord.begin()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = initialFocus }
+        .onAppear { coord.begin() }
+        .task {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            focus = initialFocus
         }
+        .onDisappear { coord.end() }
         .onChange(of: focus) { _, new in
             if let f = new { lastFocus = f }
         }
@@ -70,21 +76,47 @@ struct ActivityContainerView: View {
             // Restore focus to where it was before the confirmation opened.
             if !disabled {
                 let target = lastFocus ?? initialFocus
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = target }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    focus = target
+                }
             }
         }
         .onChange(of: coord.phase) { _, newPhase in
             switch newPhase {
-            case .modelled:
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .step }
+            case let .modelled(step):
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    focus = .step
+                }
+                announceModelled(step: step)
             case .complete:
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { focus = .next }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    focus = .next
+                }
             default:
                 break
             }
         }
+        .onChange(of: coord.feedback) { _, line in
+            // Entering "do it together" announces the feedback together with the first step (see announceModelled).
+            if case .modelled = coord.phase { return }
+            if let line = line { env.announce(line.text) }
+        }
         .onExitCommand { onMenu() }
         .onPlayPauseCommand { coord.playPrompt(slow: false) }
+    }
+
+    /// VoiceOver cannot see the changing panel, so the step text is announced. The first step also carries the
+    /// feedback line that led to it.
+    private func announceModelled(step: Int) {
+        let text = coord.steps.indices.contains(step) ? coord.steps[step] : ""
+        if step == 0, let f = coord.feedback {
+            env.announce(f.text + " " + text)
+        } else {
+            env.announce(text)
+        }
     }
 
     // MARK: Header

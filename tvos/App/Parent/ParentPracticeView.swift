@@ -93,9 +93,9 @@ struct ParentPracticeView: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text("\(verb) \(name)").font(Theme.bodyFont).bold().lineLimit(1).minimumScaleFactor(0.7)
+                Text("\(verb) \(name)").font(Theme.bodyFont).bold().lineLimit(2)
                 Text(marked ? "Marked for extra practice" : (explanation?.reason ?? "")).font(Theme.captionFont)
-                    .lineLimit(1).minimumScaleFactor(0.75)
+                    .lineLimit(2)
             }
         }
         .buttonStyle(ParentRowStyle())
