@@ -146,6 +146,10 @@ final class ActivityGeneratorTests: XCTestCase {
         XCTAssertEqual(choices.count, 1)
         XCTAssertEqual(target, "s")
         XCTAssertTrue(choices[0].correct)
+        // Such an item cannot be answered wrongly, so it must never be recorded as independent evidence.
+        XCTAssertTrue(ActivityGenerator.isSingleChoice(first))
+        XCTAssertEqual(ActivityGenerator.evidenceSupport(for: first, answered: .independent), .modelled)
+        XCTAssertEqual(ActivityGenerator.evidenceSupport(for: first, answered: .prompted), .prompted)
     }
 
     // MARK: Distractor rules

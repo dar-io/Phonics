@@ -29,10 +29,20 @@ final class FakeSpeech: SpeechFallback {
     var isPlaceholderSpeech: Bool { true }
     var spoken: [(String, AudioKind)] = []
     var stops = 0, pauses = 0, resumes = 0
-    func speak(_ text: String, kind: AudioKind, volume: Float) -> Bool { spoken.append((text, kind)); return true }
-    func stop() { stops += 1 }
+    /// "stop" / "speak:<text>" in call order, to prove stop-before-speak.
+    var events: [String] = []
+    var speaking = false
+    var finishHandler: (() -> Void)?
+    var isSpeaking: Bool { speaking }
+    func speak(_ text: String, kind: AudioKind, volume: Float) -> Bool {
+        spoken.append((text, kind)); events.append("speak:" + text); speaking = true; return true
+    }
+    func stop() { stops += 1; events.append("stop"); speaking = false }
     func pause() { pauses += 1 }
     func resume() { resumes += 1 }
+    func setOnFinished(_ handler: (() -> Void)?) { finishHandler = handler }
+    /// The utterance ended on its own.
+    func finishNaturally() { speaking = false; finishHandler?() }
 }
 
 enum AudioFixtures {

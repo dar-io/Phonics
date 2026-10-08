@@ -316,9 +316,12 @@ public enum SessionPlanner {
         // Single-choice items (unit 1) cannot be answered wrongly: present them as "we do it together", never as evidence.
         for a in result where ActivityGenerator.isSingleChoice(a) { modelled.insert(a.key) }
 
+        // `knownOrder` reports the highest unit order the session really draws content from (a revisited unit may lie ahead).
+        var usedOrder: Int = knownOrder
+        for a in result { usedOrder = max(usedOrder, index.unitOrder(id: a.unitId) ?? 0) }
         let planId: String = sessionId(seed: seed, now: now)
         return SessionPlan(id: planId, activities: result, focusUnitId: focus?.id, reasons: reasons,
-                           modelledKeys: modelled, knownOrder: knownOrder)
+                           modelledKeys: modelled, knownOrder: usedOrder)
     }
 
     /// Order in which to rotate through the focus unit's tracks: the gate track twice first while it is not yet secure,

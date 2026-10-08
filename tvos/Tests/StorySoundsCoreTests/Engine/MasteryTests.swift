@@ -271,10 +271,11 @@ final class MasteryTests: XCTestCase {
         XCTAssertEqual(s.attempts, 20)
     }
 
-    func testDayKeyIsUTCCalendarDay() {
-        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 0)), "1970-01-01")
-        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 86_399)), "1970-01-01")
-        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 86_400)), "1970-01-02")
+    func testDayKeyWithAnExplicitUTCZoneIsTheUTCCalendarDay() {
+        let utc: TimeZone = DayKey.utc
+        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 0), timeZone: utc), "1970-01-01")
+        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 86_399), timeZone: utc), "1970-01-01")
+        XCTAssertEqual(DayKey.string(for: Date(timeIntervalSince1970: 86_400), timeZone: utc), "1970-01-02")
     }
 
     func testUnitMasteryNeedsAllApplicableTracks() {

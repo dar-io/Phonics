@@ -169,20 +169,117 @@ public final class ICloudKeyValueBackup: BackupService, @unchecked Sendable {
     }
 }
 
+public enum RestoreSkipReason: Equatable, Sendable {
+    /// A profile with this id already exists and `overwrite` was false.
+    case existingKept
+    /// The same profile id appeared twice in the payload (the first copy is used).
+    case duplicateInPayload
+    /// The profile id was empty or implausibly long.
+    case invalidId
+}
+
+public struct RestoreSkip: Equatable, Sendable {
+    public let profileId: String
+    public let reason: RestoreSkipReason
+}
+
+/// Result of a restore. `activeProfileId` is the restored profile the app should open next (and, when the store supports it,
+/// has already been recorded as the active profile).
+public struct RestoreOutcome: Sendable {
+    public let writtenIds: [String]
+    public let activeProfileId: String?
+    public let skipped: [RestoreSkip]
+    public let sanitizeReports: [String: SanitizeReport]
+    /// False when the restored data was saved but the store could not record the active-profile pointer.
+    public let activePointerSet: Bool
+}
+
 public enum BackupRestoration {
-    /// Writes restored snapshots into `store`, reconciling with the curriculum when given.
-    /// Existing profiles are kept unless `overwrite` is true. Returns the ids written.
+    /// Writes restored snapshots into `store` (sanitised, see `restore`). Existing profiles are kept unless `overwrite` is true.
+    /// Returns the ids written. Kept for compatibility: prefer `restore`, which also says which profile should become active.
     @discardableResult
     public static func apply(_ payload: BackupPayload, to store: LearnerStore, curriculum: Curriculum?, overwrite: Bool = false) throws -> [String] {
-        var written: [String] = []
+        return try restore(payload, to: store, curriculum: curriculum, overwrite: overwrite).writtenIds
+    }
+
+    /// Restore with validation and rollback:
+    /// 1. the payload format and every snapshot's schema version must be supported, or NOTHING is written (`.unsupportedBackupFormat` / `.newerSchema`);
+    /// 2. each snapshot is sanitised (unknown units dropped, counts and arrays clamped, text limited, compacted to the byte budget);
+    /// 3. each profile is saved atomically (the store's own generation swap); if a later profile fails, every profile written
+    ///    by this call is put back as it was (or removed if it was new) and the error is rethrown, so earlier data stays intact;
+    /// 4. the profile with the newest activity becomes the active one (`makeActive`), so a restore onto a new Apple TV that
+    ///    already has a fresh profile switches to the restored child.
+    public static func restore(_ payload: BackupPayload, to store: LearnerStore, curriculum: Curriculum?, overwrite: Bool = false,
+                               makeActive: Bool = true, compactor: SnapshotCompactor = SnapshotCompactor(),
+                               now: Date = Date()) throws -> RestoreOutcome {
+        guard payload.formatVersion <= BackupPayload.currentFormatVersion else { throw StorageError.unsupportedBackupFormat }
+
+        var skipped: [RestoreSkip] = []
+        var prepared: [(snapshot: LearnerSnapshot, activity: Date)] = []
+        var reports: [String: SanitizeReport] = [:]
+        var seen = Set<String>()
         let existing = Set(try store.listProfileIds())
+
+        // Phase 1: validate and sanitise everything before touching the store.
         for snap in payload.snapshots {
-            if existing.contains(snap.profile.id) && !overwrite { continue }
-            let toSave = curriculum.map { Migrator.reconcile(snap, with: $0).snapshot } ?? snap
-            try store.save(toSave)
-            written.append(snap.profile.id)
+            let id = snap.profile.id
+            if !SnapshotSanitizer.isAcceptableProfileId(id) { skipped.append(RestoreSkip(profileId: id, reason: .invalidId)); continue }
+            if !seen.insert(id).inserted { skipped.append(RestoreSkip(profileId: id, reason: .duplicateInPayload)); continue }
+            if existing.contains(id) && !overwrite { skipped.append(RestoreSkip(profileId: id, reason: .existingKept)); continue }
+            let result = try SnapshotSanitizer.sanitize(snap, curriculum: curriculum, compactor: compactor, now: now)
+            reports[id] = result.report
+            prepared.append((snapshot: result.snapshot, activity: lastActivity(result.snapshot)))
         }
-        return written
+
+        // Phase 2: write, remembering what to put back.
+        var oldSnapshots: [String: LearnerSnapshot] = [:]
+        var wasNew = Set<String>()
+        var written: [String] = []
+        let previousActive: String? = try? store.activeProfileId()
+        do {
+            for item in prepared {
+                let id = item.snapshot.profile.id
+                if existing.contains(id) {
+                    if let old = try? store.load(profileId: id) { oldSnapshots[id] = old }
+                } else {
+                    wasNew.insert(id)
+                }
+                try store.save(item.snapshot)
+                written.append(id)
+            }
+        } catch {
+            for id in written.reversed() {
+                if let old = oldSnapshots[id] {
+                    try? store.save(old)
+                } else if wasNew.contains(id) {
+                    try? store.delete(profileId: id)
+                }
+            }
+            try? store.setActiveProfileId(previousActive)
+            throw error
+        }
+
+        // Phase 3: choose the profile to open next (newest activity; the first in payload order wins ties).
+        var active: String? = nil
+        var bestDate: Date? = nil
+        for item in prepared {
+            if let b = bestDate, item.activity <= b { continue }
+            bestDate = item.activity
+            active = item.snapshot.profile.id
+        }
+        var pointerSet = true
+        if makeActive, let a = active {
+            do { try store.setActiveProfileId(a) } catch { pointerSet = false }
+        }
+        return RestoreOutcome(writtenIds: written, activeProfileId: active, skipped: skipped, sanitizeReports: reports, activePointerSet: pointerSet)
+    }
+
+    /// Most recent sign of use: last attempt, session start, or profile creation.
+    static func lastActivity(_ s: LearnerSnapshot) -> Date {
+        var best = s.profile.createdAt
+        if let a = s.attempts.map({ $0.at }).max(), a > best { best = a }
+        if let x = s.sessions.map({ $0.startedAt }).max(), x > best { best = x }
+        return best
     }
 }
 

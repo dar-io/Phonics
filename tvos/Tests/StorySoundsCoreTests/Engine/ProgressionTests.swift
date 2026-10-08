@@ -43,13 +43,14 @@ final class ProgressionTests: XCTestCase {
     }
 
     func testNotSecureUntilEvidenceIsStrongEnough() {
-        var snap: LearnerSnapshot = makeSnapshot()
-        let half: SkillState = feed(SkillState(unitId: "g-s", track: .recognise), Array(secureSteps().prefix(4)))
-        snap.skills = [half]
+        // g-a has two sounds taught, so its items are real two-or-more-choice evidence (unit 1 is a special case, see below).
+        var snap: LearnerSnapshot = snapshotWithSecure(index: fx, upTo: 1)
+        let half: SkillState = feed(SkillState(unitId: "g-a", track: .recognise), Array(secureSteps().prefix(4)))
+        snap.skills.append(half)
         let e: [String: UnitExplanation] = explain(fx, snap)
-        XCTAssertEqual(e["g-s"]?.status, .inProgress)
-        XCTAssertEqual(e["g-a"]?.status, .locked)
-        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-s")
+        XCTAssertEqual(e["g-a"]?.status, .inProgress)
+        XCTAssertEqual(e["g-t"]?.status, .locked)
+        XCTAssertEqual(Progression.nextUnit(index: fx, snapshot: snap, now: day(1))?.id, "g-a")
     }
 
     func testDueReviewShowsAsReviewDueButDoesNotRelockLaterUnits() {
