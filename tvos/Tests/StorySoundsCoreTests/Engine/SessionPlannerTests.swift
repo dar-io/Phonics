@@ -83,7 +83,7 @@ final class SessionPlannerTests: XCTestCase {
     }
 
     func testEverySessionAcrossTheSequenceIsValid() {
-        for upTo in stride(from: 0, to: 98, by: 11) {
+        for upTo in stride(from: 0, to: real.index.maxOrder, by: 11) {
             let snap: LearnerSnapshot = snapshotWithSecure(index: real.index, upTo: upTo)
             for seed in 0..<2 {
                 let p: SessionPlan = plan(real, snap, now: day(60), seed: UInt64(seed))
@@ -100,7 +100,10 @@ final class SessionPlannerTests: XCTestCase {
     }
 
     func testConsolidationUnitAsFocusStillGetsAValidPlan() {
-        let snap: LearnerSnapshot = snapshotWithSecure(index: real.index, upTo: 50)
+        // Everything before the first consolidation unit is secure, so it is the next unit. Derived from the data so a
+        // content change that renumbers units (e.g. splitting a unit) cannot silently break this test.
+        guard let cvcc = real.index.unit(id: "p4-cvcc") else { return XCTFail("p4-cvcc missing from the curriculum") }
+        let snap: LearnerSnapshot = snapshotWithSecure(index: real.index, upTo: cvcc.order - 1)
         let p: SessionPlan = plan(real, snap, now: day(60), seed: 4)
         XCTAssertEqual(p.focusUnitId, "p4-cvcc")
         assertWellFormed(p, real, maxCount: 16)
