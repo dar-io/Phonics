@@ -170,7 +170,9 @@ class StorySoundsUITestCase: XCTestCase {
             }
         }
         if failOnMiss {
-            XCTFail("Could not move focus to '\(e.identifier)' within the bounded search. Focused instead: \(focusSignature())",
+            // Include where every button is on screen: when focus cannot reach a control, its geometry is the clue.
+            let layout = app.buttons.allElementsBoundByIndex.prefix(24).map { "\($0.identifier)@\($0.frame)" }.joined(separator: "; ")
+            XCTFail("Could not move focus to '\(e.identifier)' within the bounded search. Focused instead: \(focusSignature()). Buttons: \(layout)",
                     file: file, line: line)
         }
         return false
