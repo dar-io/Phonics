@@ -1,4 +1,4 @@
-# Curriculum map: Reception and Year 1 phonics (Little Wandle Letters and Sounds Revised style)
+# Curriculum map: Reception and Year 1 phonics (inferred systematic synthetic phonics sequence; not Little Wandle approved or affiliated)
 
 IMPORTANT PROVENANCE NOTE. Every direct fetch of the requested pages (St Joseph's RBKC Phonics and English pages, littlewandle.org.uk parent resources) was blocked by the network egress proxy. No requested page was read. All content below comes from (a) web search result summaries that quote school-hosted copies of the Little Wandle progression overviews [C1-C5], and (b) general knowledge of the Letters and Sounds family, marked INFERRED. In `gpc-sequence.json` every entry therefore has `source: "inferred"`; the extra field `corroboratedBySearchSummary: true` marks entries whose term-level placement was supported by those summaries. Nothing here copies proprietary worksheets, books or illustrations; example words are original.
 
