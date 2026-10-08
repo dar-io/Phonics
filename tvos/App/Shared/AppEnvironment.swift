@@ -495,7 +495,7 @@ final class AppEnvironment: ObservableObject {
 
     /// Plays ids one after another. A new call replaces the previous one: everything still playing or queued
     /// (including text-to-speech) is stopped first, so prompts never overlap or pile up. The wait after each clip is
-    /// an estimate from the clip kind and text length because the audio controller does not report completion.
+    /// the controller's completion signal when a clip or speech is playing, and an estimate from the clip kind and text length when only a caption is shown.
     /// Returns a token; pass it to `cancelSequence(token:)` so a screen only cancels its own prompt.
     @discardableResult
     func playSequence(_ ids: [String], slow: Bool = false) -> Int {
@@ -509,8 +509,16 @@ final class AppEnvironment: ObservableObject {
                 guard let strong = self, !Task.isCancelled, strong.sequenceGeneration == generation else { return }
                 if n > 0 { strong.audio.stopAll() }
                 let result = strong.playAudio(id, slow: slow)
-                let seconds = strong.estimatedSeconds(for: id, result: result, slow: slow)
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                switch result {
+                case .played, .spokenPlaceholder:
+                    // A real clip (or placeholder speech) is playing: wait until the controller says it has finished.
+                    await strong.audio.waitForNarrationEnd(timeout: 15)
+                    try? await Task.sleep(nanoseconds: 200_000_000)
+                default:
+                    // Caption only (no recording yet): give the child time to read it.
+                    let seconds = strong.estimatedSeconds(for: id, result: result, slow: slow)
+                    try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                }
             }
         }
         return generation
