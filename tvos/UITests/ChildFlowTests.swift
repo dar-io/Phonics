@@ -28,7 +28,8 @@ final class ChildFlowTests: StorySoundsUITestCase {
 
     // (2) A full lesson to a calm summary.
     func testFullLessonEndsInCalmSummary() {
-        launchApp()
+        // One-minute sessions (4 activities) and a fixed seed keep this fast and repeatable on CI.
+        launchApp(extra: ["-uitest-session-minutes", "1", "-uitest-seed", "7"])
         completeOnboarding()
         startSession()
         var feedbackTexts: [String] = []
@@ -99,18 +100,19 @@ final class ChildFlowTests: StorySoundsUITestCase {
     }
 
     // (4) Struggle: two wrong choices in one activity -> "sound it out together" steps, learner can still finish.
-    func testTwoMissesShowModelledStepsAndLearnerCanFinish() throws {
-        launchApp()
+    func testTwoMissesShowModelledStepsAndLearnerCanFinish() {
+        // `-uitest-first-choice-wrong` (DEBUG only) puts the correct choice last, so Select on the focused choice
+        // misses twice in a row in every choice-based activity. No skip: if it never happens the test fails.
+        launchApp(extra: ["-uitest-first-choice-wrong", "-uitest-session-minutes", "1", "-uitest-seed", "7"])
         completeOnboarding()
         startSession()
-        // The test cannot tell which choice is wrong (NEEDS a hook). Selecting choices in order produces two misses
-        // in a row in many activities; the check below requires the feedback banner AND the modelled panel together,
-        // which only happens after two misses (a plan-started modelled activity has no feedback yet).
-        let out = drive(prefix: "session", terminals: ["summary.done", "session.empty.home"], maxSteps: 500,
+        // The check requires the feedback banner AND the modelled panel together, which only happens after two
+        // misses (a plan-started modelled activity has no feedback yet).
+        let out = drive(prefix: "session", terminals: ["summary.done", "session.empty.home"], maxSteps: 300,
                         stopWhen: { [self] in exists("session.model.text") && exists("session.feedback") })
         guard out.stopped else {
-            throw XCTSkip("No activity produced two misses in a row in this run (steps \(out.steps)). " +
-                          "A deterministic wrong-answer hook is listed under NEEDS.")
+            XCTFail("No activity produced two misses in a row (steps \(out.steps), terminal: \(out.foundTerminal ?? "none"))")
+            return
         }
         let model = el("session.model.text")
         XCTAssertFalse(model.label.isEmpty, "Modelled step text is empty")
@@ -154,7 +156,7 @@ final class ChildFlowTests: StorySoundsUITestCase {
         let prompt = el("session.prompt")
         XCTAssertFalse(prompt.label.trimmingCharacters(in: .whitespaces).isEmpty, "Prompt caption is empty")
         XCTAssertTrue(exists("session.hearAgain"), "Hear-it-again control should exist even without audio")
-        // Soft check: poll for the transient sound caption (2.2 s) while playing a few activities.
+        // Soft check: poll for the sound caption (about 4.5 s) while playing a few activities.
         var sawSoundCaption = exists("session.soundCaption")
         var rounds = 0
         while !sawSoundCaption && rounds < 6 {

@@ -47,8 +47,9 @@ public enum Mastery {
     public static let fastResponseMs: Int = 3000
     /// How far below `secureScore` a fast answer may still tip a skill that is otherwise clearly secure.
     public static let speedTiebreakMargin: Double = 0.02
-    static let maxSessionsStored: Int = 40
-    static let maxDaysStored: Int = 60
+    /// Per-skill history caps. They match the storage compactor's defaults, so a skill never grows past what is persisted.
+    static let maxSessionsStored: Int = SnapshotCompactor.defaultMaxSessionsSeenPerSkill
+    static let maxDaysStored: Int = SnapshotCompactor.defaultMaxDaysSeenPerSkill
 
     public static func recentErrors(_ skill: SkillState) -> Int {
         return skill.recentResults.suffix(windowSize).filter { !$0 }.count

@@ -2,6 +2,9 @@ import Foundation
 
 /// Keeps a `LearnerSnapshot` inside a byte budget (tvOS UserDefaults is documented as ~500 KB in total).
 ///
+/// The default budget is ~150 KB because a save briefly holds the old AND the new generation (about 2x): 2 x 150 KB plus the
+/// store's own cap (`KeyValueLearnerStore.defaultMaxBytes`, 200 KB) keeps the peak under ~400 KB.
+///
 /// Strategy (applied in this order, repeating tighter until it fits):
 /// 1. trim per-skill history arrays (sessionsSeen / daysSeen / recentResults);
 /// 2. keep the most recent `maxAttempts` attempts, fold dropped wrong answers into `ConfusionRecord`s ONLY when no
@@ -11,7 +14,10 @@ import Foundation
 /// 5. if still over budget: halve attempts, then sessions, then confusions, then tighten per-skill arrays.
 /// Profile, settings, stickers, overrides and skill states are never dropped.
 public struct SnapshotCompactor: Sendable {
-    public static let defaultBudget = 350_000
+    public static let defaultBudget = 150_000
+    /// Per-skill history caps (also enforced when the engine appends, see `Mastery`).
+    public static let defaultMaxSessionsSeenPerSkill = 20
+    public static let defaultMaxDaysSeenPerSkill = 45
 
     public var byteBudget: Int
     public var maxAttempts: Int
@@ -20,8 +26,9 @@ public struct SnapshotCompactor: Sendable {
     public var maxSessionsSeenPerSkill: Int
     public var maxDaysSeenPerSkill: Int
 
-    public init(byteBudget: Int = SnapshotCompactor.defaultBudget, maxAttempts: Int = 500, maxSessions: Int = 100,
-                maxConfusions: Int = 100, maxSessionsSeenPerSkill: Int = 50, maxDaysSeenPerSkill: Int = 120) {
+    public init(byteBudget: Int = SnapshotCompactor.defaultBudget, maxAttempts: Int = 300, maxSessions: Int = 60,
+                maxConfusions: Int = 80, maxSessionsSeenPerSkill: Int = SnapshotCompactor.defaultMaxSessionsSeenPerSkill,
+                maxDaysSeenPerSkill: Int = SnapshotCompactor.defaultMaxDaysSeenPerSkill) {
         self.byteBudget = byteBudget; self.maxAttempts = maxAttempts; self.maxSessions = maxSessions
         self.maxConfusions = maxConfusions; self.maxSessionsSeenPerSkill = maxSessionsSeenPerSkill
         self.maxDaysSeenPerSkill = maxDaysSeenPerSkill

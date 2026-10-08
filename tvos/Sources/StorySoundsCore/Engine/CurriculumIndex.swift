@@ -357,6 +357,14 @@ public struct CurriculumIndex: Sendable {
         return applicableTracksByUnit[unitId] ?? []
     }
 
+    /// True when every "recognise" item of the unit can only ever offer ONE choice (unit 1: a single grapheme is taught, so
+    /// there is nothing to distract with). Such items are introductions, not evidence: the planner presents them as
+    /// "we do it together" (modelled) and progression treats the unit as introduced once the learner has met it.
+    public func hasOnlyOneChoiceRecognition(unitId: String) -> Bool {
+        guard let u = unit(id: unitId), !isConsolidation(u), applicableTracks(forUnit: unitId).contains(.recognise) else { return false }
+        return taughtGraphemes(upToOrder: u.order).count <= 1
+    }
+
     // MARK: Words
 
     public func word(text: String) -> Word? { return wordsByKey[text.lowercased()] }

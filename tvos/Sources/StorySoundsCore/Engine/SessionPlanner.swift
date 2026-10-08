@@ -35,6 +35,8 @@ private struct PlanState {
     var keys: Set<String> = []
     var typeUse: [ActivityType: Int] = [:]
     var supportCache: [String: [ActivityType]] = [:]
+    /// Units a grown-up asked to revisit that lie beyond `knownOrder`: they may use their own order as the known order.
+    var aheadAllowed: Set<String> = []
 
     init(index: CurriculumIndex, knownOrder: Int, maxRepeats: Int) {
         self.index = index
@@ -42,9 +44,13 @@ private struct PlanState {
         self.maxRepeats = maxRepeats
     }
 
+    func known(for unit: GraphemeUnit) -> Int {
+        return aheadAllowed.contains(unit.id) ? max(knownOrder, unit.order) : knownOrder
+    }
+
     mutating func supported(_ unit: GraphemeUnit) -> [ActivityType] {
         if let c = supportCache[unit.id] { return c }
-        let s: [ActivityType] = ActivityGenerator.supportedTypes(index: index, unitId: unit.id, knownOrder: knownOrder)
+        let s: [ActivityType] = ActivityGenerator.supportedTypes(index: index, unitId: unit.id, knownOrder: known(for: unit))
         supportCache[unit.id] = s
         return s
     }
@@ -70,7 +76,7 @@ private struct PlanState {
             }.map { $0.type }
         }
         for type in candidates {
-            let spec: ActivitySpec = ActivitySpec(unitId: unit.id, type: type, knownOrder: knownOrder, choiceCount: 3, excludeKeys: keys)
+            let spec: ActivitySpec = ActivitySpec(unitId: unit.id, type: type, knownOrder: known(for: unit), choiceCount: 3, excludeKeys: keys)
             guard let a = ActivityGenerator.generate(curriculum: index.curriculum, index: index, spec: spec, rng: &rng) else { continue }
             if (counts[a.key] ?? 0) >= maxRepeats { continue }
             register(a)
@@ -101,6 +107,13 @@ public enum SessionPlanner {
         return plan(index: CurriculumIndex(curriculum), snapshot: snapshot, now: now, seed: seed, minutes: minutes, focusUnitId: nil)
     }
 
+    /// Compact, unique-enough session id. Ids are stored in every skill's `sessionsSeen`, so they are kept short
+    /// (about 15 characters) to protect the storage budget: `plan-<unix seconds, base 36>-<seed low bits, base 36>`.
+    public static func sessionId(seed: UInt64, now: Date) -> String {
+        let secs: UInt64 = UInt64(max(0, Int64(now.timeIntervalSince1970)))
+        return "plan-" + String(secs, radix: 36) + "-" + String(seed & 0xFFFF, radix: 36)
+    }
+
     /// Builds a whole session up front: ~40% focus unit, ~40% due review, ~20% mixed, then a gentle story or fluency finish.
     /// `focusUnitId` lets a grown-up pick the unit (e.g. one they unlocked); otherwise `Progression.nextUnit` decides.
     public static func plan(index: CurriculumIndex, snapshot: LearnerSnapshot, now: Date, seed: UInt64,
@@ -111,15 +124,19 @@ public enum SessionPlanner {
         var rng: SeededRNG = SeededRNG(seed: seed, salt: snapshot.profile.id)
         let skills: [String: SkillState] = Progression.skillMap(snapshot)
 
-        var focus: GraphemeUnit? = nil
-        if let fid = focusUnitId, let u = index.unit(id: fid) {
-            focus = u
-        } else {
-            focus = Progression.nextUnit(index: index, snapshot: snapshot, now: now)
-        }
+        // Focus: an explicit unit, else the unit a grown-up unlocked (parent overrides are honoured here), else the natural next unit.
+        let focus: GraphemeUnit? = Progression.nextUnit(index: index, snapshot: snapshot, now: now, focusUnitId: focusUnitId)
         let knownOrder: Int = focus?.order ?? index.maxOrder
         var state: PlanState = PlanState(index: index, knownOrder: knownOrder, maxRepeats: maxRepeatsPerItem)
         var reasons: [String] = []
+
+        // A unit a grown-up asked to revisit that lies beyond the focus may still be reviewed (with content up to its own order),
+        // provided the learner has already met it.
+        var ahead: Set<String> = []
+        for id in Progression.revisitUnitIds(snapshot) {
+            if let u = index.unit(id: id), u.order > knownOrder, snapshot.skills.contains(where: { $0.unitId == id }) { ahead.insert(id) }
+        }
+        state.aheadAllowed = ahead
 
         // Tracks of the focus unit, and which are struggling.
         var focusTracks: [Track] = []
@@ -129,7 +146,11 @@ public enum SessionPlanner {
             for t in focusTracks {
                 if (skills[Progression.skillKey(f.id, t)]?.struggleStreak ?? 0) >= struggleThreshold { struggling.append(t) }
             }
-            reasons.append("Focus: \(Progression.displayName(f, index: index)).")
+            if focusUnitId == nil && Progression.overrideFocusUnit(index: index, snapshot: snapshot, now: now)?.id == f.id {
+                reasons.append("Focus: \(Progression.displayName(f, index: index)), which a grown-up unlocked.")
+            } else {
+                reasons.append("Focus: \(Progression.displayName(f, index: index)).")
+            }
         } else {
             reasons.append("Every sound so far is secure, so today is review and reading.")
         }
@@ -173,7 +194,7 @@ public enum SessionPlanner {
 
         // Review candidates.
         let candidates: [ReviewCandidate] = reviewCandidates(index: index, snapshot: snapshot, skills: skills, focus: focus,
-                                                            knownOrder: knownOrder, now: now)
+                                                            knownOrder: knownOrder, ahead: ahead, now: now)
         var focusN: Int = Int((0.4 * Double(remaining)).rounded())
         var reviewN: Int = Int((0.4 * Double(remaining)).rounded())
         var mixedN: Int = remaining - focusN - reviewN
@@ -292,7 +313,10 @@ public enum SessionPlanner {
             }
         }
 
-        let planId: String = "plan-" + String(seed, radix: 16) + "-" + String(Int(now.timeIntervalSince1970))
+        // Single-choice items (unit 1) cannot be answered wrongly: present them as "we do it together", never as evidence.
+        for a in result where ActivityGenerator.isSingleChoice(a) { modelled.insert(a.key) }
+
+        let planId: String = sessionId(seed: seed, now: now)
         return SessionPlan(id: planId, activities: result, focusUnitId: focus?.id, reasons: reasons,
                            modelledKeys: modelled, knownOrder: knownOrder)
     }
@@ -326,11 +350,11 @@ public enum SessionPlanner {
     }
 
     private static func reviewCandidates(index: CurriculumIndex, snapshot: LearnerSnapshot, skills: [String: SkillState],
-                                         focus: GraphemeUnit?, knownOrder: Int, now: Date) -> [ReviewCandidate] {
+                                         focus: GraphemeUnit?, knownOrder: Int, ahead: Set<String>, now: Date) -> [ReviewCandidate] {
         var out: [ReviewCandidate] = []
         var seen: Set<String> = []
         func add(_ unit: GraphemeUnit, _ track: Track) {
-            if unit.order > knownOrder { return }
+            if unit.order > knownOrder && !ahead.contains(unit.id) { return }
             if let f = focus, unit.id == f.id { return }
             if !index.applicableTracks(forUnit: unit.id).contains(track) { return }
             if seen.insert(Progression.skillKey(unit.id, track)).inserted { out.append(ReviewCandidate(unit: unit, track: track)) }
@@ -388,6 +412,7 @@ public enum SessionPlanner {
                 }
             }
         }
+        for a in acts where ActivityGenerator.isSingleChoice(a) { modelled.insert(a.key) }
         return SessionRecovery(activities: acts, modelledKeys: modelled, reason: reason)
     }
 }
@@ -435,7 +460,7 @@ public enum Baseline {
                 }
             }
         }
-        return BaselinePlan(id: "baseline-" + String(seed, radix: 16), activities: activities,
+        return BaselinePlan(id: "baseline-" + String(seed & 0xFFFFFFFF, radix: 36), activities: activities,
                             stopAfterConsecutiveMisses: stopAfterConsecutiveMisses)
     }
 

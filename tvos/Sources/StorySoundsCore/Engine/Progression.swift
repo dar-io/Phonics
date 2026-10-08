@@ -66,7 +66,12 @@ public enum Progression {
         let gate: [Track] = gateTracks(unit: unit, index: index)
         if gate.isEmpty { return true }
         for t in gate {
-            guard let s = skills[skillKey(unit.id, t)], Mastery.isEstablished(s, settings: settings) else { return false }
+            guard let s = skills[skillKey(unit.id, t)] else { return false }
+            if Mastery.isEstablished(s, settings: settings) { continue }
+            // Unit 1 has a single grapheme, so its recognise items offer one choice and can never be independent evidence.
+            // Once the learner has met the unit (any attempt, however it was supported) it must not block the sequence.
+            if t == .recognise && index.hasOnlyOneChoiceRecognition(unitId: unit.id) && s.status != .new { continue }
+            return false
         }
         return true
     }
@@ -215,6 +220,39 @@ public enum Progression {
             if ok { return u }
         }
         return nil
+    }
+
+    /// After this many sessions that practised the unit, a standing parent "unlock" stops steering the plan, so an old
+    /// override can never pin the child to one sound forever.
+    public static let overrideSessionCap: Int = 3
+
+    /// The unit a grown-up asked to start (latest `.unlocked` override, newest request first) that is still not secure.
+    /// nil when there is none. This is what makes `.unlocked` overrides usable: the planner focuses on it even though
+    /// earlier units are still open. Skill states are never touched.
+    public static func overrideFocusUnit(index: CurriculumIndex, snapshot: LearnerSnapshot, now: Date) -> GraphemeUnit? {
+        let latest: [String: OverrideMode] = latestOverrides(snapshot)
+        if latest.isEmpty { return nil }
+        let settings: MasterySettings = snapshot.profile.settings.mastery
+        let skills: [String: SkillState] = skillMap(snapshot)
+        var best: ParentOverride? = nil
+        for o in snapshot.profile.overrides {
+            guard o.mode == .unlocked, latest[o.unitId] == .unlocked, let unit = index.unit(id: o.unitId) else { continue }
+            if isUnitSecure(unit: unit, index: index, skills: skills, settings: settings) { continue }
+            let sessionsOnIt: Int = snapshot.sessions.filter { $0.unitsPractised.contains(o.unitId) }.count
+            if sessionsOnIt >= overrideSessionCap { continue }
+            if let b = best, b.at > o.at { continue }
+            best = o
+        }
+        guard let chosen = best else { return nil }
+        return index.unit(id: chosen.unitId)
+    }
+
+    /// Focus for the next session: an explicit `focusUnitId` (if it names a unit), else the unit a grown-up unlocked
+    /// (see `overrideFocusUnit`), else the natural next unit. The three-argument overload is the natural frontier only.
+    public static func nextUnit(index: CurriculumIndex, snapshot: LearnerSnapshot, now: Date, focusUnitId: String?) -> GraphemeUnit? {
+        if let fid = focusUnitId, let u = index.unit(id: fid) { return u }
+        if let o = overrideFocusUnit(index: index, snapshot: snapshot, now: now) { return o }
+        return nextUnit(index: index, snapshot: snapshot, now: now)
     }
 
     /// Units a grown-up marked for extra practice (latest override wins).

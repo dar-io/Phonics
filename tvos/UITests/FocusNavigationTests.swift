@@ -47,7 +47,7 @@ final class FocusNavigationTests: StorySoundsUITestCase {
         assertFocus("Parent gate (question)")
         XCTAssertTrue(waitForFocus(el("parentgate.answer.0")), "First answer should be focused")
         assertDirectionsKeepFocus("Parent gate question")
-        answerChallenge(correct: true)
+        answerGateQuestions()
         XCTAssertTrue(el("parent.menu.progress").waitForExistence(timeout: 12))
         assertFocus("Parent menu")
         assertDirectionsKeepFocus("Parent menu")

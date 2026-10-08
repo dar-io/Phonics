@@ -94,6 +94,34 @@ public enum ActivityGenerator {
         return out
     }
 
+    // MARK: Single-choice items
+
+    /// Number of choices the child sees, for choice-based payloads (nil for order/segment/build/story/fluency).
+    public static func choiceCount(_ activity: Activity) -> Int? {
+        switch activity.payload {
+        case let .choose(choices, _, _): return choices.count
+        case let .blend(_, _, choices, _): return choices.count
+        case let .picture(_, choices): return choices.count
+        case let .tricky(_, choices): return choices.count
+        case let .sentence(_, _, choices, _): return choices.count
+        case .order, .segment, .build, .story, .fluency: return nil
+        }
+    }
+
+    /// An item with exactly one choice (unit 1) cannot be answered wrongly, so it is never independent evidence.
+    public static func isSingleChoice(_ activity: Activity) -> Bool {
+        if let n = choiceCount(activity) { return n <= 1 }
+        return false
+    }
+
+    /// The support level that should be RECORDED for an answer: a single-choice item is downgraded from
+    /// `.independent` to `.modelled`, everything else is returned unchanged. (The session planner already lists such
+    /// activities in `SessionPlan.modelledKeys`; this is the same rule for callers that score answers directly.)
+    public static func evidenceSupport(for activity: Activity, answered support: SupportLevel) -> SupportLevel {
+        if support == .independent && isSingleChoice(activity) { return .modelled }
+        return support
+    }
+
     // MARK: Support
 
     /// Which activity types can be produced for `unitId` when the learner knows units up to `knownOrder`.
@@ -226,7 +254,7 @@ public enum ActivityGenerator {
     }
 
     private static func wordChoice(_ word: Word, correct: Bool) -> Choice {
-        return Choice(id: word.text, label: word.text, audioId: "w-" + word.text, emoji: nil, correct: correct)
+        return Choice(id: word.text, label: word.text, audioId: AudioIds.word(word.text), emoji: nil, correct: correct)
     }
 
     private static func differingPositions(_ a: [String], _ b: [String]) -> Int {
@@ -420,7 +448,7 @@ public enum ActivityGenerator {
         return Activity(key: key(type, ctx.unit.id, target.text), type: type, unitId: ctx.unit.id, track: .blend,
                         prompt: "Put the sounds in order to make the word.",
                         spokenPrompt: "Listen to the word. Choose the sounds in the order you hear them.",
-                        audioIds: ["i-listen", "w-" + target.text],
+                        audioIds: ["i-listen", AudioIds.word(target.text)],
                         payload: .order(graphemes: target.graphemes, tiles: tiles, word: target.text, emoji: target.emoji),
                         graphemesUsed: unique(target.graphemes), trickyUsed: [])
     }
@@ -440,7 +468,7 @@ public enum ActivityGenerator {
         return Activity(key: key(type, ctx.unit.id, target.text), type: type, unitId: ctx.unit.id, track: .segment,
                         prompt: "Split the word into its sounds.",
                         spokenPrompt: "Listen to the word. Choose its sounds, one at a time, in order.",
-                        audioIds: ["i-listen", "w-" + target.text],
+                        audioIds: ["i-listen", AudioIds.word(target.text)],
                         payload: .segment(word: target.text, graphemes: target.graphemes, tiles: tiles, emoji: target.emoji),
                         graphemesUsed: unique(target.graphemes + extra), trickyUsed: [])
     }
@@ -467,7 +495,7 @@ public enum ActivityGenerator {
         return Activity(key: key(type, ctx.unit.id, target.text), type: type, unitId: ctx.unit.id, track: .segment,
                         prompt: "Build the word.",
                         spokenPrompt: "Listen to the word. Choose the letters to build it, in order.",
-                        audioIds: ["i-listen", "w-" + target.text],
+                        audioIds: ["i-listen", AudioIds.word(target.text)],
                         payload: .build(word: target.text, graphemes: target.graphemes, tiles: tiles, emoji: target.emoji),
                         graphemesUsed: unique(target.graphemes + extra), trickyUsed: [])
     }
@@ -519,13 +547,13 @@ public enum ActivityGenerator {
         ordered.append(contentsOf: rng.shuffled(rest))
         let distractors: [String] = Array(ordered.prefix(max(1, spec.choiceCount - 1)))
         if distractors.isEmpty { return nil }
-        var choices: [Choice] = [Choice(id: target, label: target, audioId: "w-" + target, emoji: nil, correct: true)]
-        for d in distractors { choices.append(Choice(id: d, label: d, audioId: "w-" + d, emoji: nil, correct: false)) }
+        var choices: [Choice] = [Choice(id: target, label: target, audioId: AudioIds.word(target), emoji: nil, correct: true)]
+        for d in distractors { choices.append(Choice(id: d, label: d, audioId: AudioIds.word(d), emoji: nil, correct: false)) }
         choices = rng.shuffled(choices)
         return Activity(key: key(type, ctx.unit.id, target), type: type, unitId: ctx.unit.id, track: .read,
                         prompt: "This is a tricky word. Can you find it?",
                         spokenPrompt: "This is a tricky word. Listen, then find it.",
-                        audioIds: ["i-tricky-word", "w-" + target],
+                        audioIds: ["i-tricky-word", AudioIds.word(target)],
                         payload: .tricky(word: target, choices: choices),
                         graphemesUsed: [], trickyUsed: unique([target] + distractors))
     }
@@ -544,12 +572,12 @@ public enum ActivityGenerator {
         let target: Word = ctx.index.word(text: targetText) ?? Word(text: targetText, graphemes: targetGraphemes, emoji: nil, pictureLabel: nil, concrete: nil)
         let distractors: [Word] = wordDistractors(target: target, pool: ctx.decodable, count: max(1, spec.choiceCount - 1), rng: &rng)
         if distractors.isEmpty { return nil }
-        var choices: [Choice] = [Choice(id: targetText, label: targetText, audioId: "w-" + targetText.lowercased(), emoji: nil, correct: true)]
+        var choices: [Choice] = [Choice(id: targetText, label: targetText, audioId: AudioIds.word(targetText), emoji: nil, correct: true)]
         var seenIds: Set<String> = [targetText]
         for d in distractors {
             let shown: String = matchCase(d.text, like: targetText)
             if seenIds.insert(shown).inserted {
-                choices.append(Choice(id: shown, label: shown, audioId: "w-" + d.text, emoji: nil, correct: false))
+                choices.append(Choice(id: shown, label: shown, audioId: AudioIds.word(d.text), emoji: nil, correct: false))
             }
         }
         choices = rng.shuffled(choices)
@@ -609,9 +637,9 @@ public enum ActivityGenerator {
             let wrong: [Word] = wordDistractors(target: Word(text: answer, graphemes: [], emoji: nil, pictureLabel: nil, concrete: nil),
                                                 pool: notInStory, count: max(1, spec.choiceCount - 1), rng: &rng)
             if !wrong.isEmpty {
-                var qChoices: [Choice] = [Choice(id: answer, label: answer, audioId: "w-" + answer.lowercased(), emoji: nil, correct: true)]
+                var qChoices: [Choice] = [Choice(id: answer, label: answer, audioId: AudioIds.word(answer), emoji: nil, correct: true)]
                 for w in wrong {
-                    qChoices.append(Choice(id: w.text, label: w.text, audioId: "w-" + w.text, emoji: nil, correct: false))
+                    qChoices.append(Choice(id: w.text, label: w.text, audioId: AudioIds.word(w.text), emoji: nil, correct: false))
                     graphemes.append(contentsOf: w.graphemes)
                 }
                 questions.append(StoryQuestion(prompt: "Which of these words did you read in the story?", choices: rng.shuffled(qChoices)))

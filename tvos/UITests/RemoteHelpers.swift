@@ -31,6 +31,8 @@ enum ParentChallengeSolver {
 
     static func solve(_ prompt: String) -> Int? {
         let digits = prompt.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+        // Hard variant ("I can't hold the button"): "Multiply 14 by 7, take away 20, then add 9."
+        if prompt.hasPrefix("Multiply"), digits.count >= 4 { return digits[0] * digits[1] - digits[2] + digits[3] }
         if digits.count >= 3 { return digits[0] * digits[1] - digits[2] }
         let words = prompt.lowercased().split(whereSeparator: { !($0.isLetter || $0 == "-") })
             .compactMap { wordValue(String($0)) }
@@ -256,7 +258,7 @@ class StorySoundsUITestCase: XCTestCase {
 
     func gatePromptElement() -> XCUIElement {
         app.descendants(matching: .any).matching(
-            NSPredicate(format: "label BEGINSWITH 'What is ' OR label BEGINSWITH 'Add '")).firstMatch
+            NSPredicate(format: "label BEGINSWITH 'What is ' OR label BEGINSWITH 'Add ' OR label BEGINSWITH 'Multiply '")).firstMatch
     }
 
     /// Holds Select long enough (the app requires 3 s; 4.5 s adds margin) and waits for the adult question.
@@ -277,13 +279,19 @@ class StorySoundsUITestCase: XCTestCase {
         let prompt = gatePromptElement()
         XCTAssertTrue(prompt.waitForExistence(timeout: 8), "Adult question text not found")
         XCTAssertTrue(el("parentgate.answer.0").waitForExistence(timeout: 8), "Answer buttons not found")
+        XCTAssertTrue(el("parentgate.answer.5").waitForExistence(timeout: 4), "Expected six answer options")
         let text = prompt.label
         guard let answer = ParentChallengeSolver.solve(text) else {
             XCTFail("Could not solve the adult question: '\(text)'")
             return (0, [])
         }
         var labels: [String] = []
-        for i in 0..<4 { labels.append(el("parentgate.answer.\(i)").label) }
+        // Read every option that exists (six today); bounded so a layout change cannot loop forever.
+        var i = 0
+        while i < 12 && el("parentgate.answer.\(i)").exists {
+            labels.append(el("parentgate.answer.\(i)").label)
+            i += 1
+        }
         guard let idx = labels.firstIndex(of: "Answer \(answer)") else {
             XCTFail("Computed answer \(answer) from '\(text)' is not among the options \(labels)")
             return (0, labels)
@@ -297,11 +305,24 @@ class StorySoundsUITestCase: XCTestCase {
         activate("parentgate.answer.\(index)", settle: 0.8)
     }
 
+    /// The gate needs TWO correct answers in a row (each a fresh question). Answers both.
+    func answerGateQuestions() {
+        answerChallenge(correct: true)
+        // The first correct answer shows a new question and the notice "Well done. One more.".
+        let step = el("parentgate.step")
+        if step.waitForExistence(timeout: 6) {
+            let deadline = Date().addingTimeInterval(6)
+            while Date() < deadline && !step.label.hasPrefix("Question 2") { Thread.sleep(forTimeInterval: 0.3) }
+            XCTAssertTrue(step.label.hasPrefix("Question 2"), "Second question did not appear (step label '\(step.label)')")
+        }
+        answerChallenge(correct: true)
+    }
+
     /// Home -> hold -> correct answer -> Grown-ups' area menu.
     func unlockParentArea() {
         openParentGate()
         passHoldStep()
-        answerChallenge(correct: true)
+        answerGateQuestions()
         XCTAssertTrue(el("parent.menu.progress").waitForExistence(timeout: 12), "Parent menu did not appear after unlocking")
     }
 

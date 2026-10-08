@@ -22,8 +22,39 @@ final class ParentAreaTests: StorySoundsUITestCase {
         assertCalmText([notice.label], context: "Gate notice")
         XCTAssertTrue(gatePromptElement().exists, "A new question should be shown")
         XCTAssertFalse(exists("parent.menu.progress"), "A wrong answer must not unlock")
-        answerChallenge(correct: true)   // re-reads the new question
-        XCTAssertTrue(el("parent.menu.progress").waitForExistence(timeout: 12), "Correct answer should unlock")
+        answerGateQuestions()   // two correct answers in a row unlock; each re-reads its own question
+        XCTAssertTrue(el("parent.menu.progress").waitForExistence(timeout: 12), "Two correct answers should unlock")
+    }
+
+    // (6c) Two wrong answers start the calm lockout; the gate offers no way past it, and Back leaves.
+    func testGateLocksAfterTwoWrongAnswers() {
+        launchApp()
+        completeOnboarding()
+        openParentGate()
+        passHoldStep()
+        answerChallenge(correct: false)
+        XCTAssertTrue(app.staticTexts["Not quite. Here is another question."].waitForExistence(timeout: 6))
+        answerChallenge(correct: false)
+        XCTAssertTrue(el("parentgate.locked").waitForExistence(timeout: 8), "Second wrong answer should lock the gate")
+        XCTAssertFalse(exists("parent.menu.progress"))
+        XCTAssertFalse(exists("parentgate.answer.0"), "No answers may be offered while locked")
+        assertCalmText([el("parentgate.locked").label], context: "Gate lockout")
+        activate("parentgate.back", settle: 0.8)
+        XCTAssertTrue(el("home.start").waitForExistence(timeout: 8))
+    }
+
+    // (6d) "I can't hold the button": no hold, a harder 3-step question, still two correct answers.
+    func testGateWithoutHoldUsesHarderQuestions() {
+        launchApp(realHold: true)
+        completeOnboarding()
+        openParentGate()
+        XCTAssertTrue(el("parentgate.nohold").waitForExistence(timeout: 8), "'I can't hold the button' missing")
+        activate("parentgate.nohold", settle: 0.8)
+        let prompt = gatePromptElement()
+        XCTAssertTrue(prompt.waitForExistence(timeout: 8))
+        XCTAssertTrue(prompt.label.hasPrefix("Multiply"), "Expected the 3-step variant, got '\(prompt.label)'")
+        answerGateQuestions()
+        XCTAssertTrue(el("parent.menu.progress").waitForExistence(timeout: 12), "Two correct hard answers should unlock")
     }
 
     // (6b) Hold + correct answer unlocks; Menu on the gate leaves to Home.
@@ -97,7 +128,7 @@ final class ParentAreaTests: StorySoundsUITestCase {
         activate("home.grownups", settle: 0.8)
         XCTAssertTrue(el("parentgate.hold").waitForExistence(timeout: 8))
         passHoldStep()
-        answerChallenge(correct: true)
+        answerGateQuestions()
         XCTAssertTrue(el("parent.menu.data").waitForExistence(timeout: 12))
         openParentSection("data", ready: "parent.data.next")
         pageForward("parent.data", times: 3)
