@@ -158,8 +158,8 @@ class StorySoundsUITestCase: XCTestCase {
         if e.hasFocus { return true }
         // Sweep order matters: after moving down into a row of buttons, try left and right BEFORE going back up,
         // otherwise a target in that row (other than the one the focus engine lands on) is never reached.
-        let directions: [XCUIRemote.Button] = [.down, .left, .right, .up, .left, .right]
-        for _ in 0..<2 {
+        let directions: [XCUIRemote.Button] = [.down, .left, .down, .right, .down, .up, .left, .right]
+        for _ in 0..<3 {
             for d in directions {
                 for _ in 0..<maxMoves {
                     let before = focusSignature()

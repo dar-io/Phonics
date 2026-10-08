@@ -35,7 +35,7 @@ final class FocusNavigationTests: StorySoundsUITestCase {
     }
 
     func testParentMenuAndSectionPageRestoreFocusToOpener() {
-        launchApp()
+        launchApp(realHold: true)
         completeOnboarding()
         openParentGate()
         assertFocus("Parent gate (hold)")

@@ -9,8 +9,19 @@ concurrency:
   cancel-in-progress: true
 jobs:
   tvos:
+    name: tvos (${{ matrix.name }})
     runs-on: macos-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: unit
+            only: "-only-testing:StorySoundsCoreTests"
+          - name: ui-child
+            only: "-only-testing:StorySoundsUITests/LaunchTests -only-testing:StorySoundsUITests/ChildFlowTests -only-testing:StorySoundsUITests/AccessibilityTests"
+          - name: ui-parent
+            only: "-only-testing:StorySoundsUITests/FocusNavigationTests -only-testing:StorySoundsUITests/ParentAreaTests -only-testing:StorySoundsUITests/PersistenceTests"
     defaults: { run: { working-directory: tvos } }
     steps:
       - uses: actions/checkout@v4
@@ -25,18 +36,16 @@ jobs:
         run: brew install xcodegen
       - name: Generate project
         run: xcodegen generate
-      - name: Build and test on tvOS simulator (unit + UI)
+      - name: Build and test on tvOS simulator (${{ matrix.name }})
         run: |
           set -o pipefail
-          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 420 -resultBundlePath ../tests.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
+          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" ${{ matrix.only }} -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 420 -resultBundlePath ../tests-${{ matrix.name }}.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
           grep -q "TEST SUCCEEDED" ../xcodebuild.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: xcresults
-          path: |
-            *.xcresult
-            xcodebuild.log
+          name: xcodebuild-log-${{ matrix.name }}
+          path: xcodebuild.log
       - name: Error summary
         if: failure()
         run: |

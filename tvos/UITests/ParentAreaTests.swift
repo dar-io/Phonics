@@ -126,7 +126,7 @@ final class ParentAreaTests: StorySoundsUITestCase {
 
         // Confirm resets.
         activate("home.grownups", settle: 0.8)
-        XCTAssertTrue(el("parentgate.hold").waitForExistence(timeout: 8))
+        XCTAssertTrue(el("parentgate.back").waitForExistence(timeout: 8), "Parent gate did not appear")
         passHoldStep()
         answerGateQuestions()
         XCTAssertTrue(el("parent.menu.data").waitForExistence(timeout: 12))

@@ -56,6 +56,8 @@ struct ParentGateView: View {
                 Label("Back to Story Sounds", systemImage: "chevron.left").font(Theme.bodyFont)
             }
             .buttonStyle(FocusCardStyle())
+            // Full width so pressing down from ANY answer column lands on it (the focus engine follows geometry).
+            .frame(maxWidth: .infinity)
             .focused($focus, equals: .back)
             .a11yID("parentgate.back")
             .accessibilityLabel("Back to Story Sounds")
