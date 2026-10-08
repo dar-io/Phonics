@@ -75,7 +75,7 @@ final class ActivityGeneratorTests: XCTestCase {
         XCTAssertNil(generate(real, unit: "g-s", type: .blendToWord, seed: 1))
         XCTAssertNil(generate(real, unit: "g-s", type: .readStory, seed: 1))
         XCTAssertNil(generate(real, unit: "does-not-exist", type: .listenChooseSound, known: 5, seed: 1))
-        let later: [ActivityType] = ActivityGenerator.supportedTypes(index: real.index, unitId: "g-oa", knownOrder: 40)
+        let later: [ActivityType] = ActivityGenerator.supportedTypes(index: real.index, unitId: "g-oa", knownOrder: real.index.unitOrder(id: "g-oa") ?? 40)
         XCTAssertTrue(later.contains(.blendToWord))
         XCTAssertTrue(later.contains(.readStory))
         XCTAssertTrue(later.contains(.completeSentence))
@@ -253,7 +253,7 @@ final class ActivityGeneratorTests: XCTestCase {
         for seed in 0..<40 {
             guard let a = generate(real, unit: "g-oa", type: .mixedReview, seed: UInt64(seed)) else { return XCTFail("nil") }
             units.insert(a.unitId)
-            XCTAssertLessThanOrEqual(real.index.unitOrder(id: a.unitId) ?? 999, 40)
+            XCTAssertLessThanOrEqual(real.index.unitOrder(id: a.unitId) ?? 999, real.index.unitOrder(id: "g-oa") ?? 0)
         }
         XCTAssertGreaterThan(units.count, 5)
     }

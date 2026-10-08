@@ -221,7 +221,8 @@ final class EngineReviewFixesTests: XCTestCase {
         XCTAssertFalse(Scheduler.isDue(s, now: day(2)))
 
         // A later dip never un-passes it (no flip-flopping between units).
-        let wrong: [Step] = (0..<6).map { _ in (false, "c", 2, ActivityType.listenChooseSound) }
+        var wrong: [Step] = []
+        for _ in 0..<6 { wrong.append((false, "c", 2, ActivityType.listenChooseSound)) }
         s = feed(s, wrong)
         XCTAssertLessThan(s.score, 0.6)
         XCTAssertTrue(Progression.meetsSoftPass(s, settings: MasterySettings()))
@@ -431,7 +432,7 @@ final class EngineReviewFixesTests: XCTestCase {
         let idx: CurriculumIndex = real.index
         for seed in 0..<30 {
             for unit in ["p4-suffix", "p4-cvcc", "g-s"] {
-                for type in [ActivityType.blendToWord, .listenChooseSound, .findGrapheme, .mixedReview] {
+                for type in [ActivityType.blendToWord, .listenChooseSound, .findGrapheme, .matchSoundGrapheme, .mixedReview] {
                     guard let a = generate(real, unit: unit, type: type, known: idx.maxOrder, seed: UInt64(seed)) else { continue }
                     XCTAssertFalse(a.audioIds.contains("i-blend"), a.key)
                     if case let .choose(choices, _, _) = a.payload {
@@ -471,9 +472,15 @@ final class EngineReviewFixesTests: XCTestCase {
         }
         XCTAssertFalse(idx.areConfusable("cat", "cut"))
         // Fields from the content are honoured too, in both directions.
-        var c: Curriculum = fx.curriculum
-        c.words = c.words.map { $0.text == "pit" ? Word(text: $0.text, graphemes: $0.graphemes, emoji: $0.emoji, pictureLabel: $0.pictureLabel, concrete: $0.concrete,
-                                                       homophones: ["pat"], sameMeaningAs: ["hole"]) : $0 }
+        let base: Curriculum = fx.curriculum
+        let words: [Word] = base.words.map { w -> Word in
+            if w.text != "pit" { return w }
+            return Word(text: w.text, graphemes: w.graphemes, emoji: w.emoji, pictureLabel: w.pictureLabel, concrete: w.concrete,
+                        homophones: ["pat"], sameMeaningAs: ["hole"])
+        }
+        let c: Curriculum = Curriculum(schemaVersion: base.schemaVersion, contentVersion: base.contentVersion, units: base.units, words: words,
+                                       trickyWords: base.trickyWords, sentences: base.sentences, stories: base.stories,
+                                       wordRequirements: base.wordRequirements)
         let custom: CurriculumIndex = CurriculumIndex(c)
         XCTAssertTrue(custom.areConfusable("pit", "pat"))
         XCTAssertTrue(custom.areConfusable("pat", "pit"))
@@ -549,7 +556,8 @@ final class EngineReviewFixesTests: XCTestCase {
                     XCTAssertFalse((emoji ?? "").isEmpty, "\(a.key): a cloze needs a picture")
                     let parts: [String] = a.key.components(separatedBy: "|")
                     guard parts.count >= 4, let sentence = idx.sentence(id: parts[2]), let blank = Int(parts[3]),
-                          case let .word(text, graphemes) = sentence.tokens[blank] else { XCTFail("key \(a.key)"); continue }
+                          case let .word(text, tokenGraphemes) = sentence.tokens[blank] else { XCTFail("key \(a.key)"); continue }
+                    let graphemes: [String] = idx.word(text: text)?.graphemes ?? tokenGraphemes
                     XCTAssertNotNil(idx.picture(forSentence: sentence), a.key)
                     for c in choices where !c.correct {
                         offeredAny += 1

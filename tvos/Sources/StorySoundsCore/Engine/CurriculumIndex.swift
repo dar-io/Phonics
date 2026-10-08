@@ -390,7 +390,7 @@ public struct CurriculumIndex: Sendable {
     public func graphemesSharingSound(with unit: GraphemeUnit, atOrder n: Int) -> Set<String> {
         let keys: Set<String> = phonemeKeys(of: unit)
         var out: Set<String> = Set(unit.graphemes)
-        for u in units(upToOrder: n) where !isConsolidation(u) {
+        for u in units(upToOrder: n) where hasOwnSound(u) {
             if !phonemeKeys(of: u).isDisjoint(with: keys) {
                 for g in u.graphemes { out.insert(g) }
             }

@@ -2,13 +2,12 @@ import Foundation
 import StorySoundsCore
 
 /// Which recording a tapped grapheme tile plays. Pedagogy B1: the sound must match the WORD the tile belongs to
-/// (`o` in `cold` is /oa/, not the first-taught /o/).
-/// TODO(core): when `CurriculumIndex.audioId(forGrapheme:inWord:)` lands in StorySoundsCore, call it from the marked
-/// line below and delete the fallback. Until then this forwards to the first-taught reading, exactly as before.
+/// (`o` in `cold` is /oa/, not the first-taught /o/). The package resolves this from the word's requirements.
 enum GraphemeAudio {
     @MainActor
     static func audioId(index: CurriculumIndex, grapheme: String, inWord word: String) -> String? {
-        // TODO(core): return index.audioId(forGrapheme: grapheme, inWord: word) ?? <fallback below>
+        if let id = index.audioId(forGrapheme: grapheme, inWord: word) { return id }
+        // Unknown word or grapheme: fall back to the first-taught reading rather than staying silent.
         return index.audioId(forGrapheme: grapheme, atOrder: index.maxOrder)
     }
 }

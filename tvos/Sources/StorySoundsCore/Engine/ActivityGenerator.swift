@@ -487,7 +487,7 @@ public enum ActivityGenerator {
         for m in unit.misconceptions { confused.append(contentsOf: ctx.index.resolveGraphemes(m.confusedWith, atOrder: ctx.k)) }
         var tier1: [GraphemeUnit] = []
         var rest: [GraphemeUnit] = []
-        for u in ctx.index.units(upToOrder: ctx.k) where !ctx.index.isConsolidation(u) && u.id != unit.id {
+        for u in ctx.index.units(upToOrder: ctx.k) where ctx.index.hasOwnSound(u) && u.id != unit.id {
             // The grapheme may legitimately make that sound too, or the sounds are the same: not a fair distractor.
             if u.graphemes.contains(target) { continue }
             if !ctx.index.phonemeKeys(of: u).isDisjoint(with: keys) { continue }
