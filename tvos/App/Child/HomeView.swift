@@ -74,6 +74,7 @@ struct HomeView: View {
                 .accessibilityLabel("Sound")
                 .accessibilityValue(env.soundOn ? "On" : "Off")
                 .accessibilityHint("Turns sound on or off.")
+                .accessibilityAddTraits(.isToggle)
                 .a11yID("home.sound")
 
                 StoryButton(action: { env.setGentleMode(!env.settings.gentleMode) }) {
@@ -85,6 +86,7 @@ struct HomeView: View {
                 .accessibilityLabel("Gentle mode")
                 .accessibilityValue(env.settings.gentleMode ? "On" : "Off")
                 .accessibilityHint("Quieter sounds and no movement.")
+                .accessibilityAddTraits(.isToggle)
                 .a11yID("home.gentle")
 
                 StoryButton(action: { env.route = .parent }) {

@@ -124,7 +124,7 @@ struct ChooseActivityView: View {
                     Text(env.phoneme(ofUnit: coord.activity.unitId)).font(Theme.glyphFont).foregroundStyle(Theme.accent)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("The sound \(AccessibilityText.spoken(env.phoneme(ofUnit: coord.activity.unitId)))")
+                .accessibilityLabel("A sound to listen for. Press Play Pause to hear it again.")
                 .a11yID("\(coord.idPrefix).target")
             }
             ChoiceGridView(coord: coord, choices: choices, style: .text, focus: focus)
@@ -182,7 +182,8 @@ struct BlendActivityView: View {
             }
             .disabled(!coord.contentEnabled)
             .focused(focus, equals: .sound(i))
-            .accessibilityLabel("Sound \(i + 1): \(AccessibilityText.spoken(g))")
+            .accessibilityLabel("Sound \(i + 1), letters \(g.filter { $0 != "_" }.map { String($0).uppercased() }.joined(separator: " "))")
+            .accessibilityValue(isLit ? "played" : "not played")
             .accessibilityHint("Plays this sound and lights it up.")
             .a11yID("\(coord.idPrefix).sound.\(i)")
             Image(systemName: isLit ? "checkmark.circle.fill" : "speaker.wave.2")
@@ -201,6 +202,8 @@ struct BlendActivityView: View {
         if lit.count >= graphemes.count {
             let target = choices.indices.first(where: { coord.canSelect(choices[$0]) }) ?? 0
             afterTick(0.1) { focus.wrappedValue = .choice(target) }
+        } else if env.settings.gentleMode || UIAccessibility.isVoiceOverRunning {
+            return   // no unprompted focus movement for Gentle mode or VoiceOver users
         } else if let next = graphemes.indices.first(where: { $0 > i && !lit.contains($0) }) ?? graphemes.indices.first(where: { !lit.contains($0) }) {
             afterTick { focus.wrappedValue = .sound(next) }
         }
