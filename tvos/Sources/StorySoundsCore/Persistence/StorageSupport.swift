@@ -45,6 +45,11 @@ public enum StorageNamespace {
 }
 
 /// UserDefaults-backed key-value store. Writes are read back and verified.
+///
+/// LIMIT OF THAT VERIFICATION: `defaults.data(forKey:)` is answered from the in-process cache, so the read-back proves the write
+/// was accepted, NOT that it reached disk. A write the system later drops (quota, termination before the flush) still passes.
+/// Do not treat it as proof of durability; keep total usage small (see `SnapshotCompactor`) and rely on the scene-leaves-foreground
+/// flush and on decoding the data again after the next launch.
 /// tvOS note: UserDefaults is the only durable app-writable local storage on tvOS (documented ~500 KB limit).
 public final class UserDefaultsKeyValueStore: KeyValueStoring, @unchecked Sendable {
     private let defaults: UserDefaults

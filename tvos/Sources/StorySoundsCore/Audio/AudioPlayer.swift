@@ -193,7 +193,7 @@ public final class AudioPlaybackController: AudioPlayer {
         if backend.play(url: url, channel: .music, volume: v, rate: 1.0, loop: true) { machine.handle(.playbackStarted) }
     }
 
-    public func stopMusic() { musicURL = nil; backend.stop(channel: .music); channelFinished() }
+    public func stopMusic() { musicURL = nil; backend.stop(channel: .music); channelFinished(.music) }
 
     public func stopAll() {
         backend.stopAll(); speech?.stop()

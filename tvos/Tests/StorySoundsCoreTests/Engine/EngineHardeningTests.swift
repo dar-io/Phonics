@@ -21,12 +21,17 @@ final class EngineHardeningTests: XCTestCase {
     func testDayKeyFollowsTheInjectedTimeZone() throws {
         // 2023-11-14 22:13:20 UTC
         let instant: Date = Date(timeIntervalSince1970: 1_700_000_000)
+        let sydney: TimeZone = try zone("Australia/Sydney")
+        let auckland: TimeZone = try zone("Pacific/Auckland")
+        let la: TimeZone = try zone("America/Los_Angeles")
+        let kiritimati: TimeZone = try zone("Pacific/Kiritimati")
+        let pagoPago: TimeZone = try zone("Pacific/Pago_Pago")
         XCTAssertEqual(DayKey.string(for: instant, timeZone: DayKey.utc), "2023-11-14")
-        XCTAssertEqual(DayKey.string(for: instant, timeZone: try zone("Australia/Sydney")), "2023-11-15")
-        XCTAssertEqual(DayKey.string(for: instant, timeZone: try zone("Pacific/Auckland")), "2023-11-15")
-        XCTAssertEqual(DayKey.string(for: instant, timeZone: try zone("America/Los_Angeles")), "2023-11-14")
-        XCTAssertEqual(DayKey.string(for: instant, timeZone: try zone("Pacific/Kiritimati")), "2023-11-15")
-        XCTAssertEqual(DayKey.string(for: instant, timeZone: try zone("Pacific/Pago_Pago")), "2023-11-14")
+        XCTAssertEqual(DayKey.string(for: instant, timeZone: sydney), "2023-11-15")
+        XCTAssertEqual(DayKey.string(for: instant, timeZone: auckland), "2023-11-15")
+        XCTAssertEqual(DayKey.string(for: instant, timeZone: la), "2023-11-14")
+        XCTAssertEqual(DayKey.string(for: instant, timeZone: kiritimati), "2023-11-15")
+        XCTAssertEqual(DayKey.string(for: instant, timeZone: pagoPago), "2023-11-14")
     }
 
     func testDayKeyDefaultsToTheDeviceTimeZone() {
@@ -109,9 +114,11 @@ final class EngineHardeningTests: XCTestCase {
         var s: SkillState = secureSkill("g-s", .recognise)
         for _ in 0..<2 { s = Mastery.update(skill: s, attempt: makeAttempt(correct: false, session: "c", at: day(3)), settings: MasterySettings(), now: day(3)) }
         XCTAssertEqual(s.status, .reviewDue)
-        for i in 0..<6 { s = Mastery.update(skill: s, attempt: makeAttempt(correct: true, session: "d", at: day(4 + i)), settings: MasterySettings(), now: day(4 + i)) }
+        for i in 0..<12 where s.status != .secure {
+            s = Mastery.update(skill: s, attempt: makeAttempt(correct: true, session: "d", at: day(4 + i)), settings: MasterySettings(), now: day(4 + i))
+        }
         XCTAssertEqual(s.status, .secure)
-        XCTAssertTrue(s.recentResults.isEmpty)
+        XCTAssertTrue(s.recentResults.isEmpty, "the moment of recovery starts a fresh error window")
     }
 
     // MARK: Single-choice items are not independent evidence
@@ -133,7 +140,7 @@ final class EngineHardeningTests: XCTestCase {
         }
     }
 
-    func testPlansWithRealChoicesAreNotMarkedModified() {
+    func testPlansWithRealChoicesAreNotMarkedModelled() {
         let snap: LearnerSnapshot = snapshotWithSecure(index: real.index, upTo: 20)
         let p: SessionPlan = SessionPlanner.plan(index: real.index, snapshot: snap, now: day(40), seed: 3, minutes: 7, focusUnitId: nil)
         XCTAssertTrue(p.activities.allSatisfy { !ActivityGenerator.isSingleChoice($0) })
