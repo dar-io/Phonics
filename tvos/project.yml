@@ -10,12 +10,23 @@ targets:
   StorySounds:
     type: application
     platform: tvOS
-    sources: [App]
+    sources:
+      - path: App
+        excludes:
+          - "**/*.entitlements"
+          - "PrivacyInfo.xcprivacy"
+      # Privacy manifest: bundled as a resource (UserDefaults required-reason API CA92.1, no tracking, no data collected).
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: StorySoundsCore
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.app
+        # iCloud backup (NSUbiquitousKeyValueStore) needs a SIGNED build with the iCloud key-value storage capability
+        # on the App ID. The entitlement is applied to device builds only, so unsigned simulator / CI builds are
+        # unaffected. Without a signed build the app reports iCloud backup as unavailable.
+        "CODE_SIGN_ENTITLEMENTS[sdk=appletvos*]": App/StorySounds.entitlements
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         # tvOS brand assets (layered App Icon + Top Shelf images) live in App/Assets.xcassets, which XcodeGen picks

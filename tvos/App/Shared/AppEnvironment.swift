@@ -167,6 +167,9 @@ final class AppEnvironment: ObservableObject {
     let options: LaunchOptions
     /// Non-nil when the bundled lessons could not be loaded. The root view then shows a friendly retry screen.
     let loadFailure: String?
+    /// True when `loadFailure` is "saved progress exists but cannot be read" (as opposed to missing lessons).
+    /// Only then does the recovery screen offer "Start fresh".
+    let progressUnreadable: Bool
 
     // MARK: Observable state
     @Published private(set) var snapshot: LearnerSnapshot
@@ -187,7 +190,9 @@ final class AppEnvironment: ObservableObject {
 
     // MARK: Factory
 
-    static func make(arguments: [String] = CommandLine.arguments) -> AppEnvironment {
+    /// `startFresh`: the grown-up chose "Start fresh" on the unreadable-progress screen. A NEW profile is created, saved and
+    /// made active; the unreadable data is neither read, deleted nor overwritten (it stays on disk, set aside).
+    static func make(arguments: [String] = CommandLine.arguments, startFresh: Bool = false) -> AppEnvironment {
         let options = LaunchOptions(arguments: arguments)
         var failure: String?
         var curriculum = AppEnvironment.emptyCurriculum()
@@ -196,11 +201,8 @@ final class AppEnvironment: ObservableObject {
         } catch {
             failure = AppEnvironment.storiesUnavailableMessage
         }
-        #if DEBUG
-        if options.forceLoadError { failure = AppEnvironment.storiesUnavailableMessage }
-        #endif
         let manifest: AudioManifest = (try? AudioManifest.loadBundled()) ?? AppEnvironment.blankManifest()
-        return AppEnvironment(options: options, curriculum: curriculum, manifest: manifest, failure: failure)
+        return AppEnvironment(options: options, curriculum: curriculum, manifest: manifest, failure: failure, startFresh: startFresh)
     }
 
     /// Wren's line on the recovery screen when the lessons cannot be opened.
@@ -232,7 +234,7 @@ final class AppEnvironment: ObservableObject {
 
     // MARK: Init
 
-    private init(options: LaunchOptions, curriculum: Curriculum, manifest: AudioManifest, failure: String?) {
+    private init(options: LaunchOptions, curriculum: Curriculum, manifest: AudioManifest, failure: String?, startFresh: Bool) {
         let scope = AppEnvironment.currentUserScope()
         let kv: KeyValueStoring = options.inMemory ? InMemoryKeyValueStore() : UserDefaultsKeyValueStore()
         let store = KeyValueLearnerStore(keyValue: kv, userScope: scope)
@@ -251,7 +253,22 @@ final class AppEnvironment: ObservableObject {
 
         var loaded: LearnerSnapshot?
         var failureText = failure
-        if failure == nil {
+        var unreadable = false
+        var freshProfile: LearnerSnapshot?
+        if failure == nil && startFresh {
+            // Deliberate choice by a grown-up: create a brand-new profile and make it the active one. Nothing is deleted
+            // or overwritten; the unreadable profile keys stay where they are.
+            let fresh = AppEnvironment.freshSnapshot(contentVersion: curriculum.contentVersion)
+            do {
+                try store.save(fresh)
+                ProfileSelection.setActiveId(fresh.profile.id, in: kv)
+                try? store.setActiveProfileId(fresh.profile.id)
+                freshProfile = fresh
+            } catch {
+                unreadable = true
+                failureText = AppEnvironment.progressUnreadableMessage
+            }
+        } else if failure == nil {
             // Never reconcile (and therefore never save) against an empty fallback curriculum.
             switch ProfileSelection.choose(store: store, kv: kv) {
             case let .loaded(s):
@@ -261,9 +278,17 @@ final class AppEnvironment: ObservableObject {
             case .unreadable:
                 // Keep the unreadable bytes untouched; saving is disabled while `loadFailure` is set.
                 failureText = AppEnvironment.progressUnreadableMessage
+                unreadable = true
             }
         }
-        let snap = loaded ?? AppEnvironment.freshSnapshot(contentVersion: curriculum.contentVersion)
+        #if DEBUG
+        // UI tests: simulate unreadable saved progress (no data is touched).
+        if options.forceLoadError && !startFresh && failureText == nil {
+            failureText = AppEnvironment.progressUnreadableMessage
+            unreadable = true
+        }
+        #endif
+        let snap = loaded ?? freshProfile ?? AppEnvironment.freshSnapshot(contentVersion: curriculum.contentVersion)
         if failureText == nil { ProfileSelection.setActiveId(snap.profile.id, in: kv) }
 
         let lib = AudioLibrary(manifest: manifest)
@@ -288,6 +313,7 @@ final class AppEnvironment: ObservableObject {
         self.backup = backupService
         self.coordinator = PersistenceCoordinator(store: store)
         self.loadFailure = failureText
+        self.progressUnreadable = unreadable
         self.snapshot = snap
         self.soundOn = on
         self.route = (loaded != nil) ? .home : .onboarding

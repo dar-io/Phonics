@@ -40,8 +40,9 @@ struct ChoiceGridView: View {
     private var columnCount: Int { choices.count == 4 ? 2 : min(3, max(1, choices.count)) }
 
     var body: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 40), count: columnCount)
-        LazyVGrid(columns: columns, spacing: 40) {
+        // Spacing is kept modest so the 2x2 choose-sound screen fits at 1920x1080 beside the 100 pt caption slot.
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 28), count: columnCount)
+        LazyVGrid(columns: columns, spacing: 28) {
             ForEach(Array(choices.enumerated()), id: \.offset) { i, c in
                 card(i, c)
             }
@@ -72,8 +73,8 @@ struct ChoiceGridView: View {
                 } else {
                     Text(AccessibilityText.display(c.label))
                         .font(choiceFont(for: c.label))
-                        .minimumScaleFactor(0.5)
-                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
                 }
                 if tried {
                     Label("Tried", systemImage: "circle.dashed").font(Theme.captionFont)
@@ -81,7 +82,7 @@ struct ChoiceGridView: View {
                     Label("Try this one", systemImage: "star.fill").font(Theme.captionFont)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 200)
+            .frame(maxWidth: .infinity, minHeight: 170)
         }
         .disabled(!(gate && coord.canSelect(c)))
         .opacity(tried ? 0.45 : 1)
@@ -108,7 +109,7 @@ struct ChooseActivityView: View {
     let focus: ActivityFocusBinding
 
     var body: some View {
-        VStack(spacing: 36) {
+        VStack(spacing: 20) {
             if coord.activity.type == .matchSoundGrapheme {
                 VStack(spacing: 8) {
                     Text("These letters").font(Theme.captionFont).foregroundStyle(Theme.textSecondary)
@@ -193,7 +194,7 @@ struct BlendActivityView: View {
 
     private func lightUp(_ i: Int) {
         guard coord.contentEnabled else { return }
-        if let audioId = env.index.audioId(forGrapheme: graphemes[i], atOrder: env.index.maxOrder) {
+        if let audioId = GraphemeAudio.audioId(index: env.index, grapheme: graphemes[i], inWord: word) {
             env.playAudioInterrupting(audioId)
         }
         lit.insert(i)
@@ -327,7 +328,7 @@ struct TileActivityView: View {
 
     private func tap(_ i: Int) {
         guard canTap(i) else { return }
-        if let audioId = env.index.audioId(forGrapheme: tiles[i], atOrder: env.index.maxOrder) {
+        if let audioId = GraphemeAudio.audioId(index: env.index, grapheme: tiles[i], inWord: word) {
             env.playAudioInterrupting(audioId)
         }
         placed.append(i)
@@ -446,7 +447,7 @@ struct SentenceActivityView: View {
     }
 
     var body: some View {
-        VStack(spacing: 32) {
+        VStack(spacing: 20) {
             HStack(spacing: 28) {
                 if let e = emoji, !e.isEmpty { Text(e).font(.system(size: 100)).accessibilityHidden(true) }
                 sentenceText()
@@ -581,13 +582,14 @@ struct FluencyActivityView: View {
     @State private var heard: Set<Int> = []
 
     var body: some View {
-        VStack(spacing: 36) {
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 32), count: 3)
-            LazyVGrid(columns: columns, spacing: 32) {
+        VStack(spacing: 24) {
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 28), count: 3)
+            LazyVGrid(columns: columns, spacing: 28) {
                 ForEach(Array(words.enumerated()), id: \.offset) { i, w in
                     StoryButton(prominent: heard.contains(i), action: { tapWord(i, w) }) {
                         HStack(spacing: 14) {
-                            Text(w).font(Font.system(size: 80, weight: .bold, design: .rounded)).minimumScaleFactor(0.5).lineLimit(1)
+                            Text(w).font(Font.system(size: w.count > 8 ? 64 : 80, weight: .bold, design: .rounded))
+                                .multilineTextAlignment(.center).lineLimit(2)
                             if heard.contains(i) {
                                 Image(systemName: "checkmark.circle.fill").font(.system(size: 40)).accessibilityHidden(true)
                             }
