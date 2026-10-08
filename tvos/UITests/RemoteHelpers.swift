@@ -146,6 +146,40 @@ class StorySoundsUITestCase: XCTestCase {
         return e.exists && e.hasFocus
     }
 
+    /// Moves focus toward `e` by geometry: press along the axis with the larger offset between the focused leaf
+    /// element and the target, trying the other axis when focus does not change. Bounded to 24 presses.
+    private func steerFocus(to e: XCUIElement) -> Bool {
+        let target = e.frame
+        guard !target.isEmpty else { return false }
+        var tried: Set<String> = []
+        for _ in 0..<24 {
+            let leaves = focusedElements().filter { !$0.frame.isEmpty }
+            guard let cur = leaves.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) else {
+                press(.down, settle: 0.25)
+                if e.exists && e.hasFocus { return true }
+                continue
+            }
+            let dx = target.midX - cur.frame.midX
+            let dy = target.midY - cur.frame.midY
+            var options: [XCUIRemote.Button] = []
+            let horizontal: XCUIRemote.Button = dx > 0 ? .right : .left
+            let vertical: XCUIRemote.Button = dy > 0 ? .down : .up
+            if abs(dy) >= abs(dx) { options = [vertical, horizontal] } else { options = [horizontal, vertical] }
+            if abs(dx) < 4 { options.removeAll { $0 == .right || $0 == .left } }
+            if abs(dy) < 4 { options.removeAll { $0 == .up || $0 == .down } }
+            let sig = focusSignature()
+            var moved = false
+            for d in options where !tried.contains("\(sig)#\(directionName(d))") {
+                tried.insert("\(sig)#\(directionName(d))")
+                press(d, settle: 0.25)
+                if e.exists && e.hasFocus { return true }
+                if focusSignature() != sig { moved = true; break }
+            }
+            if !moved { return false }
+        }
+        return e.exists && e.hasFocus
+    }
+
     /// Presses a direction repeatedly until `e.hasFocus`. Bounded: at most 2 rounds x 4 directions x `maxMoves`
     /// presses, and a direction stops early when focus stops changing (an edge). Never loops forever.
     @discardableResult
@@ -156,7 +190,8 @@ class StorySoundsUITestCase: XCTestCase {
             return false
         }
         if e.hasFocus { return true }
-        // Sweep order matters: after moving down into a row of buttons, try left and right BEFORE going back up,
+        if steerFocus(to: e) { return true }
+        // Fallback sweep order matters: after moving down into a row of buttons, try left and right BEFORE going back up,
         // otherwise a target in that row (other than the one the focus engine lands on) is never reached.
         let directions: [XCUIRemote.Button] = [.down, .left, .down, .right, .down, .up, .left, .right]
         for _ in 0..<3 {
