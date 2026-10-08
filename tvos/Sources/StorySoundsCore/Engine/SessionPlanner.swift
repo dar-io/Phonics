@@ -313,8 +313,9 @@ public enum SessionPlanner {
             }
         }
 
-        // Single-choice items (unit 1) cannot be answered wrongly: present them as "we do it together", never as evidence.
-        for a in result where ActivityGenerator.isSingleChoice(a) { modelled.insert(a.key) }
+        // Single-choice items (unit 1) cannot be answered wrongly and two-choice recognition items (unit 2) can be guessed:
+        // present them as "we do it together", never as evidence.
+        for a in result where ActivityGenerator.isGuessable(a) { modelled.insert(a.key) }
 
         // `knownOrder` reports the highest unit order the session really draws content from (a revisited unit may lie ahead).
         var usedOrder: Int = knownOrder
@@ -415,7 +416,7 @@ public enum SessionPlanner {
                 }
             }
         }
-        for a in acts where ActivityGenerator.isSingleChoice(a) { modelled.insert(a.key) }
+        for a in acts where ActivityGenerator.isGuessable(a) { modelled.insert(a.key) }
         return SessionRecovery(activities: acts, modelledKeys: modelled, reason: reason)
     }
 }

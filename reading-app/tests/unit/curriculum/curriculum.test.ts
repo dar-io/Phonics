@@ -19,13 +19,13 @@ describe('shipped curriculum data', () => {
   });
 
   it('covers the full Reception + Year 1 sequence in ascending order', () => {
-    expect(curriculum.units.length).toBe(98);
+    expect(curriculum.units.length).toBe(99);
     const orders = curriculum.units.map((u) => u.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
     expect(new Set(orders).size).toBe(orders.length);
     expect(curriculum.units[0]!.id).toBe('g-s');
     expect(curriculum.units.slice(0, 4).map((u) => u.graphemes[0])).toEqual(['s', 'a', 't', 'p']);
-    expect(curriculum.units.filter((u) => u.stage === 'reception').length).toBe(54);
+    expect(curriculum.units.filter((u) => u.stage === 'reception').length).toBe(55);
     expect(curriculum.units.filter((u) => u.stage === 'year1').length).toBe(44);
     expect(unit('g-ai').phase).toBe(3);
     expect(unit('p4-cvcc').phase).toBe(4);

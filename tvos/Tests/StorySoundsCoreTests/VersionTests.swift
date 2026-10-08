@@ -5,7 +5,7 @@ final class CurriculumLoadingTests: XCTestCase {
     func testBundledCurriculumDecodes() throws {
         let c = try Curriculum.loadBundled()
         XCTAssertEqual(c.schemaVersion, CurriculumSchema.version)
-        XCTAssertEqual(c.units.count, 98)
+        XCTAssertEqual(c.units.count, 99)
         XCTAssertGreaterThan(c.words.count, 1000)
         XCTAssertFalse(c.wordRequirements.isEmpty)
         XCTAssertEqual(c.units.first?.id, "g-s")

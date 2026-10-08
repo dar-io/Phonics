@@ -1314,7 +1314,7 @@
     {"text":"wreck","graphemes":["wr","e","ck"],"concrete":false},
     {"text":"wreath","graphemes":["wr","ea","th"],"concrete":false},
     {"text":"wrench","graphemes":["wr","e","n","ch"],"concrete":false},
-    {"text":"wrinkle","graphemes":["wr","i","n","k","l","e"],"concrete":false},
+    {"text":"wrinkle","graphemes":["wr","i","nk","l","e"],"concrete":false},
     {"text":"wriggle","graphemes":["wr","i","g","g","l","e"],"concrete":false},
     {"text":"lamb","graphemes":["l","a","mb"],"concrete":false},
     {"text":"thumb","graphemes":["th","u","mb"],"emoji":"👍","pictureLabel":"thumb","concrete":true},

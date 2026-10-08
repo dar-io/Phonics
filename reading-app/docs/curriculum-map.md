@@ -15,7 +15,7 @@ IMPORTANT PROVENANCE NOTE. Every direct fetch of the requested pages (St Joseph'
 
 Reception Autumn 1 (Phase 2) [C1][C3]: s a t p i n m d g o c k ck e u r h b f l. The grouping into weeks (satp / inmd / gock / ck e u r / h b f l) is INFERRED from general knowledge.
 
-Reception Autumn 2 (Phase 2) [C1]: ff ll ss, j v w x, y z zz qu, ch sh th ng nk. Week split INFERRED.
+Reception Autumn 2 (Phase 2) [C1]: ff ll ss, j v w x, y z zz qu, ch sh th (unvoiced, as in thin) then th (voiced /dh/, as in this: its own unit, added after the pedagogy review), ng nk. Week split INFERRED. Shipped counts: 99 units (37 Phase 2, 14 Phase 3, 4 Phase 4 = 55 Reception; 44 Year 1).
 
 Reception Spring 1 (Phase 3) [C1]: ai ee igh oa, oo (long) oo (short) ar or, ur ow oi ear, air er. Week split INFERRED.
 
