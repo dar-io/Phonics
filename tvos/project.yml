@@ -1,0 +1,64 @@
+name: StorySounds
+options:
+  bundleIdPrefix: dev.storysounds
+  deploymentTarget:
+    tvOS: "17.0"
+packages:
+  StorySoundsCore:
+    path: .
+targets:
+  StorySounds:
+    type: application
+    platform: tvOS
+    sources:
+      - path: App
+        excludes:
+          - "**/*.entitlements"
+          - "PrivacyInfo.xcprivacy"
+      # Privacy manifest: bundled as a resource (UserDefaults required-reason API CA92.1, no tracking, no data collected).
+      - path: App/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    dependencies:
+      - package: StorySoundsCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.app
+        # iCloud backup (NSUbiquitousKeyValueStore) needs a SIGNED build with the iCloud key-value storage capability
+        # on the App ID. The entitlement is applied to device builds only, so unsigned simulator / CI builds are
+        # unaffected. Without a signed build the app reports iCloud backup as unavailable.
+        "CODE_SIGN_ENTITLEMENTS[sdk=appletvos*]": App/StorySounds.entitlements
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        # tvOS brand assets (layered App Icon + Top Shelf images) live in App/Assets.xcassets, which XcodeGen picks
+        # up from `sources: [App]` as a resource catalog. The Top Shelf images belong to the same brand asset set.
+        ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_VERSION: "5.9"
+  StorySoundsCoreTests:
+    type: bundle.unit-test
+    platform: tvOS
+    sources: [Tests/StorySoundsCoreTests]
+    dependencies:
+      - package: StorySoundsCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.coretests
+        SWIFT_VERSION: "5.9"
+  StorySoundsUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources: [UITests]
+    dependencies:
+      - target: StorySounds
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.storysounds.uitests
+        SWIFT_VERSION: "5.9"
+schemes:
+  StorySounds:
+    build:
+      targets: { StorySounds: all }
+    test:
+      targets: [StorySoundsCoreTests, StorySoundsUITests]

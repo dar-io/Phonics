@@ -1,0 +1,67 @@
+name: tvOS build and test
+on:
+  push:
+    branches: ['claude/story-sounds-phonics-app']
+    paths: ['tvos/**', '.github/workflows/tvos.yml']
+  workflow_dispatch:
+concurrency:
+  group: tvos-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  tvos:
+    name: tvos (${{ matrix.name }})
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: unit
+            only: "-only-testing:StorySoundsCoreTests"
+          - name: ui-child
+            only: "-only-testing:StorySoundsUITests/LaunchTests -only-testing:StorySoundsUITests/ChildFlowTests -only-testing:StorySoundsUITests/AccessibilityTests"
+          - name: ui-focus
+            only: "-only-testing:StorySoundsUITests/FocusNavigationTests"
+          - name: ui-parent
+            only: "-only-testing:StorySoundsUITests/ParentAreaTests"
+          - name: ui-persist
+            only: "-only-testing:StorySoundsUITests/PersistenceTests"
+    defaults: { run: { working-directory: tvos } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain info
+        run: xcodebuild -version && swift --version && xcodebuild -showsdks | grep -i tvos
+      - name: Pick an Apple TV simulator
+        run: |
+          xcrun simctl list devices available | grep "Apple TV" | head -5
+          UDID=$(xcrun simctl list devices available | grep "Apple TV 4K" | head -1 | grep -oE '[0-9A-F-]{36}')
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build and test on tvOS simulator (${{ matrix.name }})
+        run: |
+          set -o pipefail
+          xcodebuild test -project StorySounds.xcodeproj -scheme StorySounds -destination "id=$SIM_UDID" ${{ matrix.only }} -test-timeouts-enabled YES -default-test-execution-time-allowance 240 -maximum-test-execution-time-allowance 420 -resultBundlePath ../tests-${{ matrix.name }}.xcresult 2>&1 | tee ../xcodebuild.log | grep -E "error:|warning: .*(focus|accessib)|Test Case .*(passed|failed)|Executed [0-9]+ test|\*\* TEST|BUILD" || true
+          grep -q "TEST SUCCEEDED" ../xcodebuild.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xcodebuild-log-${{ matrix.name }}
+          path: xcodebuild.log
+      - name: Error summary
+        if: failure()
+        run: |
+          echo "=== COMPILE/TEST ERRORS ==="
+          grep -E "error:|failed \(|XCTAssert.*failed|Fatal error" ../xcodebuild.log | sed -E 's#.*/tvos/##' | sort -u | head -60
+          echo "=== END ==="
+      - name: Test counts
+        if: always()
+        run: |
+          echo "=== TEST COUNTS ==="
+          echo "passed: $(grep -cE "Test Case .* passed" ../xcodebuild.log)"
+          echo "failed: $(grep -cE "Test Case .* failed" ../xcodebuild.log)"
+          grep -E "Executed [0-9]+ tests?," ../xcodebuild.log | tail -1
+          grep -E "Test Case .* failed" ../xcodebuild.log | sed -E 's#.*Test Case ##' | head -30
+          echo "=== END COUNTS ==="

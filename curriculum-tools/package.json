@@ -1,0 +1,24 @@
+{
+  "name": "story-sounds-curriculum-tools",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Authoring, validation and audit tools for the Story Sounds curriculum data (the tvOS app bundles the generated JSON).",
+  "scripts": {
+    "build:curriculum": "tsx src/curriculum/author/build.ts",
+    "validate:curriculum": "tsx scripts/validate-curriculum.ts",
+    "audit:curriculum": "tsx scripts/audit-curriculum.ts",
+    "test": "vitest run",
+    "verify": "npm run build:curriculum && npm run sync:tvos && npm run validate:curriculum && npm run audit:curriculum && npm test",
+    "sync:tvos": "cp src/curriculum/data/curriculum.json ../tvos/Sources/StorySoundsCore/Resources/curriculum.json && cp src/curriculum/data/word-requirements.json ../tvos/Sources/StorySoundsCore/Resources/word-requirements.json && cp public/audio/manifest.json ../tvos/Sources/StorySoundsCore/Resources/audio-manifest.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
